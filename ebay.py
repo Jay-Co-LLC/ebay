@@ -4,39 +4,53 @@ import requests
 
 baseurl = 'https://svcs.ebay.com/services/search/FindingService/v1'
 
+currentPage = 1
+totalPages = 1
+
+final_dict = {}
+
 baseparams = {
 	'OPERATION-NAME' : 'findItemsIneBayStores',
 	'SERVICE-VERSION' : '1.0.0',
 	'SECURITY-APPNAME' : config.key,
 	'RESPONSE-DATA-FORMAT' : 'JSON',
 	'REST-PAYLOAD' : '',
-	'storeName' : 'Suspension Specialists'
+	'storeName' : 'Suspension Specialists',
+	'paginationInput.pageNumber' : '1'
 	}
 	
-r = requests.get(baseurl, params=baseparams)
 
-if (r.status_code != 200):
-	print("FAILURE")
-	print("ERROR " + str(r.status_code))
-	print("EXITING")
+def writeOutAndClose():	
+	with open('out.csv', 'w', newline='') as outfile:
+		writer = csv.writer(outfile)
+		writer.writerow(['SKU','PRICE'])
+		for eachItem in final_dict:
+			writer.writerow([eachItem, final_dict[eachItem]['price']])
 	exit()
 
-final_dict = {}
 	
-obj = r.json()
-
-pageInfo = obj['findItemsIneBayStoresResponse'][0]['paginationOutput'][0]
-totalPages = pageInfo['totalPages'][0]
-
-searchResults = obj['findItemsIneBayStoresResponse'][0]['searchResult'][0]
-
-for eachItem in searchResults['item']:
-	itemId = eachItem['itemId'][0]
-	final_dict[itemId] = {}
-	final_dict[itemId]['price']	= eachItem['sellingStatus'][0]['currentPrice'][0]['__value__']
+while (currentPage <= totalPages):
+	currentParams = baseparams
+	currentParams['paginationInput.pageNumber'] = currentPage
 	
-with open('out.csv', 'w', newline='') as outfile:
-	writer = csv.writer(outfile)
-	writer.writerow(['SKU','PRICE'])
-	for eachItem in final_dict:
-		writer.writerow([eachItem, final_dict[eachItem]['price']])
+	r = requests.get(baseurl, params=currentParams)
+
+	if (r.status_code != 200):
+		print("ERROR! " + str(r.status_code))
+		print("Dumping what I have end exiting.")
+		writeOutAndClose()
+		
+	obj = r.json()
+	
+	totalPages = int(obj['findItemsIneBayStoresResponse'][0]['paginationOutput'][0]['totalPages'][0])
+		
+	searchResults = obj['findItemsIneBayStoresResponse'][0]['searchResult'][0]
+	
+	for eachItem in searchResults['item']:
+		itemId = eachItem['itemId'][0]
+		final_dict[itemId] = {}
+		final_dict[itemId]['price'] = eachItem['sellingStatus'][0]['currentPrice'][0]['__value__']
+	
+	currentPage = currentPage + 1
+	
+writeOutAndClose()
