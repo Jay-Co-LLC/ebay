@@ -3,7 +3,7 @@ import requests
 
 baseurl = 'https://svcs.ebay.com/services/search/FindingService/v1'
 
-params = {
+baseparams = {
 	'OPERATION-NAME' : 'findItemsIneBayStores',
 	'SERVICE-VERSION' : '1.0.0',
 	'SECURITY-APPNAME' : config.key,
@@ -12,6 +12,13 @@ params = {
 	'storeName' : 'Suspension Specialists'
 	}
 	
-r = requests.get(baseurl, params=params)
+r = requests.get(baseurl, params=baseparams)
 
-print(r.status_code)
+if (r.status_code != 200):
+	print("FAILURE")
+	print("ERROR " + str(r.status_code))
+	print("EXITING")
+	exit()
+
+obj = r.json()
+pageInfo = obj['findItemsIneBayStoresResponse'][0]['paginationOutput'][0]
