@@ -70,6 +70,11 @@ while (currentPage <= totalPages):
 	
 	for eachItem in searchResults['item']:
 		itemId = eachItem['itemId'][0]
+		
+		if (itemId in final_dict):
+			print("DUPLICATE FOUND: " + str(itemId))
+			continue
+			
 		final_dict[itemId] = {}
 		final_dict[itemId]['price'] = eachItem['sellingStatus'][0]['currentPrice'][0]['__value__']
 	
