@@ -1,5 +1,6 @@
 import config
 import csv
+import datetime
 import requests
 
 baseurl = 'https://svcs.ebay.com/services/search/FindingService/v1'
@@ -9,19 +10,25 @@ totalPages = 1
 
 final_dict = {}
 
+print("Enter Store Name => ")
+storeName = input()
+print("Working...")
+
 baseparams = {
 	'OPERATION-NAME' : 'findItemsIneBayStores',
 	'SERVICE-VERSION' : '1.0.0',
 	'SECURITY-APPNAME' : config.key,
 	'RESPONSE-DATA-FORMAT' : 'JSON',
 	'REST-PAYLOAD' : '',
-	'storeName' : 'Suspension Specialists',
+	'storeName' : storeName,
 	'paginationInput.pageNumber' : '1'
 	}
 	
 
 def writeOutAndClose():	
-	with open('out.csv', 'w', newline='') as outfile:
+	timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%I%M%S%p--%f")
+	
+	with open(storeName + "--" + timestamp + ".csv", 'w', newline='') as outfile:
 		writer = csv.writer(outfile)
 		writer.writerow(['SKU','PRICE'])
 		for eachItem in final_dict:
