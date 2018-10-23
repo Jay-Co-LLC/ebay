@@ -1,4 +1,5 @@
 import config
+import sys
 import csv
 import datetime
 import requests
@@ -10,8 +11,12 @@ totalPages = 1
 
 final_dict = {}
 
-print("Enter Store Name => ")
-storeName = input()
+if (len(sys.argv) == 1):
+	print("Enter Store Name => ")
+	storeName = input()
+else:
+	storeName = sys.argv[1]
+	
 print("Working...")
 
 baseparams = {
@@ -27,12 +32,18 @@ baseparams = {
 
 def writeOutAndClose():	
 	timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%I%M%S%p--%f")
+	filename = storeName + "--" + timestamp + ".csv"
 	
-	with open(storeName + "--" + timestamp + ".csv", 'w', newline='') as outfile:
+	with open(filename, 'w', newline='') as outfile:
 		writer = csv.writer(outfile)
 		writer.writerow(['SKU','PRICE'])
 		for eachItem in final_dict:
 			writer.writerow([eachItem, final_dict[eachItem]['price']])
+		
+	# write out the filename of this run to use for comparing to next run
+	with open(storeName, 'w') as outfile:
+		outfile.write(filename)
+		
 	exit()
 
 	
