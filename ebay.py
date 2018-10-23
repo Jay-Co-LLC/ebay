@@ -55,13 +55,17 @@ while (currentPage <= totalPages):
 
 	if (r.status_code != 200):
 		print("ERROR! " + str(r.status_code))
-		print("Dumping what I have end exiting.")
+		print("Dumping what I have and exiting.")
 		writeOutAndClose()
 		
 	obj = r.json()
 	
-	totalPages = int(obj['findItemsIneBayStoresResponse'][0]['paginationOutput'][0]['totalPages'][0])
+	if (obj['findItemsIneBayStoresResponse'][0]['ack'][0] == "Failure"):
+		print("ERROR: " + obj['findItemsIneBayStoresResponse'][0]['errorMessage'][0]['error'][0]['message'][0])
+		print("Dumping what I have and exiting.")
+		writeOutAndClose()
 		
+	totalPages = int(obj['findItemsIneBayStoresResponse'][0]['paginationOutput'][0]['totalPages'][0])	
 	searchResults = obj['findItemsIneBayStoresResponse'][0]['searchResult'][0]
 	
 	for eachItem in searchResults['item']:
