@@ -18,8 +18,8 @@ def writeOutAndClose():
 	with open('data/' + storeName + "/" + filename, 'w', newline='') as outfile:
 		writer = csv.writer(outfile)
 		writer.writerow(['SKU','PRICE'])
-		for eachItem in final_dict:
-			writer.writerow([eachItem, final_dict[eachItem]['price']])
+		for eachItem in current_data_dict:
+			writer.writerow([eachItem, current_data_dict[eachItem]['price']])
 		
 	# write out the filename of this run to use for comparing to next run
 	with open('data/' + storeName + '/' + storeName, 'w') as outfile:
@@ -45,14 +45,31 @@ baseparams = {
 	'paginationInput.pageNumber' : '1'
 	}
 
+paths = {
+	'storeData' : 'data/' + storeName,
+	'storePreviousRunFile' : 'data/' + storeName + '/' + storeName
+	}
+
 currentPage = 1
 totalPages = 1
 
-final_dict = {}	
+previousDataFilename = ''
+previousData = {}
+
+current_data_dict = {}
+current_dupes_dict = {}
 	
 mkdirIfNotExists('data')
 mkdirIfNotExists('reports')
-	
+
+# check for previous run file, load previous data into memory
+if (os.path.exists(paths['storePreviousRunFile'])):
+	with open(paths['storePreviousRunFile']) as previousRunFile:
+		previousDataFilename = previousRunFile.read()
+		
+	with open(paths['storeData'] + "/" + previousDataFilename) as previousDataFile:
+		previousData = dict(csv.reader(previousDataFile))
+			
 while (currentPage <= totalPages):
 	currentParams = baseparams
 	currentParams['paginationInput.pageNumber'] = currentPage
@@ -77,12 +94,12 @@ while (currentPage <= totalPages):
 	for eachItem in searchResults['item']:
 		itemId = eachItem['itemId'][0]
 		
-		if (itemId in final_dict):
+		if (itemId in current_data_dict):
 			print("DUPLICATE FOUND: " + str(itemId))
 			continue
 			
-		final_dict[itemId] = {}
-		final_dict[itemId]['price'] = eachItem['sellingStatus'][0]['currentPrice'][0]['__value__']
+		current_data_dict[itemId] = {}
+		current_data_dict[itemId]['price'] = eachItem['sellingStatus'][0]['currentPrice'][0]['__value__']
 	
 	currentPage = currentPage + 1
 	
