@@ -1,24 +1,40 @@
 import config
 import sys
+import os
 import csv
 import datetime
 import requests
 
-baseurl = 'https://svcs.ebay.com/services/search/FindingService/v1'
+def mkdirIfNotExists(path):
+	if (not os.path.isdir(path)):
+		os.mkdir(path)
 
-currentPage = 1
-totalPages = 1
-
-final_dict = {}
-
-if (len(sys.argv) == 1):
-	print("Enter Store Name => ")
-	storeName = input()
-else:
-	storeName = sys.argv[1]
+def writeOutAndClose():	
+	timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%I%M%S%p--%f")
+	filename = storeName + "--" + timestamp + ".csv"
 	
-print("Working...")
+	mkdirIfNotExists('data/' + storeName)
+	
+	with open('data/' + storeName + "/" + filename, 'w', newline='') as outfile:
+		writer = csv.writer(outfile)
+		writer.writerow(['SKU','PRICE'])
+		for eachItem in final_dict:
+			writer.writerow([eachItem, final_dict[eachItem]['price']])
+		
+	# write out the filename of this run to use for comparing to next run
+	with open('data/' + storeName + '/' + storeName, 'w') as outfile:
+		outfile.write(filename)
+		
+	exit()
 
+if (not len(sys.argv) == 2):
+	print("Usage: python ebay.py [storeName]")
+	exit()	
+	
+storeName = sys.argv[1]
+	
+baseurl = 'https://svcs.ebay.com/services/search/FindingService/v1'
+	
 baseparams = {
 	'OPERATION-NAME' : 'findItemsIneBayStores',
 	'SERVICE-VERSION' : '1.0.0',
@@ -28,24 +44,14 @@ baseparams = {
 	'storeName' : storeName,
 	'paginationInput.pageNumber' : '1'
 	}
-	
 
-def writeOutAndClose():	
-	timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%I%M%S%p--%f")
-	filename = storeName + "--" + timestamp + ".csv"
-	
-	with open(filename, 'w', newline='') as outfile:
-		writer = csv.writer(outfile)
-		writer.writerow(['SKU','PRICE'])
-		for eachItem in final_dict:
-			writer.writerow([eachItem, final_dict[eachItem]['price']])
-		
-	# write out the filename of this run to use for comparing to next run
-	with open(storeName, 'w') as outfile:
-		outfile.write(filename)
-		
-	exit()
+currentPage = 1
+totalPages = 1
 
+final_dict = {}	
+	
+mkdirIfNotExists('data')
+mkdirIfNotExists('reports')
 	
 while (currentPage <= totalPages):
 	currentParams = baseparams
