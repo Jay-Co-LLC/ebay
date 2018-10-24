@@ -14,6 +14,7 @@ def writeOutAndClose():
 	filename = storeName + "--" + timestamp + ".csv"
 	
 	mkdirIfNotExists('data/' + storeName)
+	mkdirIfNotExists('reports/' + storeName)
 	
 	# write out the filename of this run to use for comparing to next run
 	with open('data/' + storeName + '/' + storeName, 'w') as outfile:
@@ -23,8 +24,8 @@ def writeOutAndClose():
 	with open('data/' + storeName + '/' + filename, 'w', newline='') as outfile:
 		writer = csv.writer(outfile)
 		writer.writerow(['SKU','PRICE'])
-		for eachItem in current_data_dict:
-			writer.writerow([eachItem, current_data_dict[eachItem]['price']])
+		for eachItem in current:
+			writer.writerow([eachItem['itemId'], eachItem['price']])
 			
 	# write out the dupes
 	with open('data/' + storeName + '/' + "DUPES__" + filename, 'w', newline='') as dupefile:
@@ -37,6 +38,11 @@ def writeOutAndClose():
 			writer.writerow(eachDupe)
 	
 	# write out the report
+	with open('reports/' + storeName + '/' + 'REPORT__' + filename, 'w', newline='') as reportfile:
+		writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status'])
+		writer.writeheader()
+		for eachItem in current:
+			writer.writerow(eachItem)
 		
 	exit()
 
@@ -66,10 +72,10 @@ paths = {
 currentPage = 1
 totalPages = 1
 
-previousDataFilename = ''
-previousData = {}
+previousFilename = ''
+previous = {}
 
-current_data_dict = {}
+current = []
 
 current_dupes = []
 	
@@ -108,7 +114,13 @@ while (currentPage <= totalPages):
 	for eachItem in searchResults['item']:
 		itemId = eachItem['itemId'][0]
 		
-		if (itemId in current_data_dict):
+		current_item = {
+			'itemId' : itemId,
+			'price' : eachItem['sellingStatus'][0]['currentPrice'][0]['__value__']
+		}
+		
+		# If dupe itemID, add it to dupes list
+		if (itemId in current):
 			print("DUPLICATE FOUND: " + str(itemId))
 			dupe = {
 				'SKU' : eachItem['itemId'][0],
@@ -116,9 +128,25 @@ while (currentPage <= totalPages):
 				}
 			current_dupes.append(dupe)
 			continue
+		
+		# If not in previous data, mark as new item
+		if (itemId not in previousData):
+			current_item['last_price'] = 'N/A'
+			current_item['price_difference'] = 'N/A'
+			current_item['status'] = 'NEW'
+		else:
+			current_item['last_price'] = previousData[itemId]
+			difference = float(current_item['price']) - float(current_item['last_price'])
+			current_item['price_difference'] = difference
 			
-		current_data_dict[itemId] = {}
-		current_data_dict[itemId]['price'] = eachItem['sellingStatus'][0]['currentPrice'][0]['__value__']
+			if (difference < 0):
+				current_item['status'] = 'REDUCED'
+			elif (difference > 0):
+				current_item['status'] = 'INCREASED'
+			else:
+				current_item['status'] = 'NOCHANGE'
+			
+		current.append(current_item)
 	
 	currentPage = currentPage + 1
 	
