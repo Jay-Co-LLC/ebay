@@ -15,15 +15,28 @@ def writeOutAndClose():
 	
 	mkdirIfNotExists('data/' + storeName)
 	
-	with open('data/' + storeName + "/" + filename, 'w', newline='') as outfile:
+	# write out the filename of this run to use for comparing to next run
+	with open('data/' + storeName + '/' + storeName, 'w') as outfile:
+		outfile.write(filename)
+	
+	# write out the data
+	with open('data/' + storeName + '/' + filename, 'w', newline='') as outfile:
 		writer = csv.writer(outfile)
 		writer.writerow(['SKU','PRICE'])
 		for eachItem in current_data_dict:
 			writer.writerow([eachItem, current_data_dict[eachItem]['price']])
+			
+	# write out the dupes
+	with open('data/' + storeName + '/' + "DUPES__" + filename, 'w', newline='') as dupefile:
+		fieldnames = ['SKU', 'URL']
+		writer = csv.DictWriter(dupefile, fieldnames=fieldnames)
 		
-	# write out the filename of this run to use for comparing to next run
-	with open('data/' + storeName + '/' + storeName, 'w') as outfile:
-		outfile.write(filename)
+		writer.writeheader()
+		
+		for eachDupe in current_dupes:
+			writer.writerow(eachDupe)
+	
+	# write out the report
 		
 	exit()
 
@@ -57,7 +70,8 @@ previousDataFilename = ''
 previousData = {}
 
 current_data_dict = {}
-current_dupes_dict = {}
+
+current_dupes = []
 	
 mkdirIfNotExists('data')
 mkdirIfNotExists('reports')
@@ -96,6 +110,11 @@ while (currentPage <= totalPages):
 		
 		if (itemId in current_data_dict):
 			print("DUPLICATE FOUND: " + str(itemId))
+			dupe = {
+				'SKU' : eachItem['itemId'][0],
+				'URL' : eachItem['viewItemURL'][0]
+				}
+			current_dupes.append(dupe)
 			continue
 			
 		current_data_dict[itemId] = {}
