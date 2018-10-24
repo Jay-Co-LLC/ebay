@@ -37,12 +37,13 @@ def writeOutAndClose():
 		for eachDupe in current_dupes:
 			writer.writerow(eachDupe)
 	
-	# write out the report
-	with open('reports/' + storeName + '/' + 'REPORT__' + filename, 'w', newline='') as reportfile:
-		writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status'])
-		writer.writeheader()
-		for eachItem in current:
-			writer.writerow(eachItem)
+	# write out the report, if we need to 
+	if (previousData != {}):
+		with open('reports/' + storeName + '/' + 'REPORT__' + filename, 'w', newline='') as reportfile:
+			writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status'])
+			writer.writeheader()
+			for eachItem in current:
+				writer.writerow(eachItem)
 		
 	exit()
 
@@ -73,7 +74,7 @@ currentPage = 1
 totalPages = 1
 
 previousFilename = ''
-previous = {}
+previousData = {}
 
 current = []
 
@@ -129,6 +130,11 @@ while (currentPage <= totalPages):
 			current_dupes.append(dupe)
 			continue
 		
+		# if no previous run, don't worry about reporting stuff
+		if (previousData == {}):
+			current.append(current_item)
+			continue
+			
 		# If not in previous data, mark as new item
 		if (itemId not in previousData):
 			current_item['last_price'] = 'N/A'
