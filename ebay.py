@@ -22,7 +22,6 @@ def writeOutAndClose():
 	# write out the data
 	with open(storeName + '/DATA__' + filename, 'w', newline='') as outfile:
 		writer = csv.writer(outfile)
-		writer.writerow(['SKU','PRICE'])
 		for eachItem in current:
 			writer.writerow([eachItem['itemId'], eachItem['price']])
 				
@@ -32,7 +31,8 @@ def writeOutAndClose():
 			writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status'])
 			writer.writeheader()
 			for eachItem in current:
-				writer.writerow(eachItem)
+				if (eachItem['status'] != 'NOCHANGE'):
+					writer.writerow(eachItem)
 		
 	exit()
 
@@ -121,8 +121,7 @@ while (currentPage <= totalPages):
 			else:
 				current_item['status'] = 'NOCHANGE'
 		
-		if (current_item['status'] != 'NOCHANGE'):
-			current.append(current_item)
+		current.append(current_item)
 	
 	currentPage = currentPage + 1
 	
