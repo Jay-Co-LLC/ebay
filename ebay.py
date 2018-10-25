@@ -13,15 +13,14 @@ def writeOutAndClose():
 	timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%I%M%S%p--%f")
 	filename = storeName + "--" + timestamp + ".csv"
 	
-	mkdirIfNotExists('data/' + storeName)
-	mkdirIfNotExists('reports/' + storeName)
+	mkdirIfNotExists(storeName)
 	
 	# write out the filename of this run to use for comparing to next run
-	with open('data/' + storeName + '/' + storeName, 'w') as outfile:
+	with open(storeName + '/' + storeName, 'w') as outfile:
 		outfile.write(filename)
 	
 	# write out the data
-	with open('data/' + storeName + '/' + filename, 'w', newline='') as outfile:
+	with open(storeName + '/DATA__' + filename, 'w', newline='') as outfile:
 		writer = csv.writer(outfile)
 		writer.writerow(['SKU','PRICE'])
 		for eachItem in current:
@@ -29,7 +28,7 @@ def writeOutAndClose():
 			
 	# write out the dupes
 	if (current_dupes != []):
-		with open('data/' + storeName + '/' + "DUPES__" + filename, 'w', newline='') as dupefile:
+		with open(storeName + '/DUPES__' + filename, 'w', newline='') as dupefile:
 			fieldnames = ['SKU', 'URL']
 			writer = csv.DictWriter(dupefile, fieldnames=fieldnames)
 			
@@ -40,7 +39,7 @@ def writeOutAndClose():
 	
 	# write out the report
 	if (previousData != {}):
-		with open('reports/' + storeName + '/' + 'REPORT__' + filename, 'w', newline='') as reportfile:
+		with open(storeName + '/REPORT__' + filename, 'w', newline='') as reportfile:
 			writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status'])
 			writer.writeheader()
 			for eachItem in current:
@@ -66,11 +65,6 @@ baseparams = {
 	'paginationInput.pageNumber' : '1'
 	}
 
-paths = {
-	'storeData' : 'data/' + storeName,
-	'storePreviousRunFile' : 'data/' + storeName + '/' + storeName
-	}
-
 currentPage = 1
 totalPages = 1
 
@@ -85,11 +79,11 @@ mkdirIfNotExists('data')
 mkdirIfNotExists('reports')
 
 # check for previous run file, load previous data into memory
-if (os.path.exists(paths['storePreviousRunFile'])):
-	with open(paths['storePreviousRunFile']) as previousRunFile:
+if (os.path.exists(storeName + '/' + storeName)):
+	with open(storeName + '/' + storeName) as previousRunFile:
 		previousDataFilename = previousRunFile.read()
 		
-	with open(paths['storeData'] + "/" + previousDataFilename) as previousDataFile:
+	with open(storeName + '/DATA__' + previousDataFilename) as previousDataFile:
 		previousData = dict(csv.reader(previousDataFile))
 			
 while (currentPage <= totalPages):
