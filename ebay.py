@@ -25,18 +25,7 @@ def writeOutAndClose():
 		writer.writerow(['SKU','PRICE'])
 		for eachItem in current:
 			writer.writerow([eachItem['itemId'], eachItem['price']])
-			
-	# write out the dupes
-	if (current_dupes != []):
-		with open(storeName + '/DUPES__' + filename, 'w', newline='') as dupefile:
-			fieldnames = ['SKU', 'URL']
-			writer = csv.DictWriter(dupefile, fieldnames=fieldnames)
-			
-			writer.writeheader()
-			
-			for eachDupe in current_dupes:
-				writer.writerow(eachDupe)
-	
+				
 	# write out the report
 	if (previousData != {}):
 		with open(storeName + '/REPORT__' + filename, 'w', newline='') as reportfile:
@@ -72,12 +61,7 @@ previousFilename = ''
 previousData = {}
 
 current = []
-
-current_dupes = []
 	
-mkdirIfNotExists('data')
-mkdirIfNotExists('reports')
-
 # check for previous run file, load previous data into memory
 if (os.path.exists(storeName + '/' + storeName)):
 	with open(storeName + '/' + storeName) as previousRunFile:
@@ -114,17 +98,7 @@ while (currentPage <= totalPages):
 			'itemId' : itemId,
 			'price' : eachItem['sellingStatus'][0]['currentPrice'][0]['__value__']
 		}
-		
-		# If dupe itemID, add it to dupes list
-		if (itemId in current):
-			print("DUPLICATE FOUND: " + str(itemId))
-			dupe = {
-				'SKU' : eachItem['itemId'][0],
-				'URL' : eachItem['viewItemURL'][0]
-				}
-			current_dupes.append(dupe)
-			continue
-		
+				
 		# if no previous run, don't worry about reporting stuff
 		if (previousData == {}):
 			current.append(current_item)
