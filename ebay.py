@@ -28,16 +28,17 @@ def writeOutAndClose():
 			writer.writerow([eachItem['itemId'], eachItem['price']])
 			
 	# write out the dupes
-	with open('data/' + storeName + '/' + "DUPES__" + filename, 'w', newline='') as dupefile:
-		fieldnames = ['SKU', 'URL']
-		writer = csv.DictWriter(dupefile, fieldnames=fieldnames)
-		
-		writer.writeheader()
-		
-		for eachDupe in current_dupes:
-			writer.writerow(eachDupe)
+	if (current_dupes != []):
+		with open('data/' + storeName + '/' + "DUPES__" + filename, 'w', newline='') as dupefile:
+			fieldnames = ['SKU', 'URL']
+			writer = csv.DictWriter(dupefile, fieldnames=fieldnames)
+			
+			writer.writeheader()
+			
+			for eachDupe in current_dupes:
+				writer.writerow(eachDupe)
 	
-	# write out the report, if we need to 
+	# write out the report
 	if (previousData != {}):
 		with open('reports/' + storeName + '/' + 'REPORT__' + filename, 'w', newline='') as reportfile:
 			writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status'])
