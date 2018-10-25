@@ -146,8 +146,9 @@ while (currentPage <= totalPages):
 				current_item['status'] = 'INCREASED'
 			else:
 				current_item['status'] = 'NOCHANGE'
-			
-		current.append(current_item)
+		
+		if (current_item['status'] != 'NOCHANGE'):
+			current.append(current_item)
 	
 	currentPage = currentPage + 1
 	
