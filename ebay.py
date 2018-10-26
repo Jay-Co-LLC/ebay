@@ -26,15 +26,15 @@ def writeOutAndClose():
 	# write out the data
 	with open(storeName + '/DATA__' + filename, 'w', newline='') as outfile:
 		writer = csv.writer(outfile)
-		for eachItem in current:
-			writer.writerow([eachItem['itemId'], eachItem['price']])
+		for itemid in currentData:
+			writer.writerow([itemid, currentData[itemid]])
 				
 	# write out the report
-	if (previousData != {}):
+	if (currentReport != []):
 		with open(storeName + '/REPORT__' + filename, 'w', newline='') as reportfile:
 			writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status','url'])
 			writer.writeheader()
-			for eachItem in current:
+			for eachItem in currentReport:
 				if (eachItem['status'] != 'NOCHANGE'):
 					writer.writerow(eachItem)
 
@@ -65,7 +65,8 @@ totalPages = 1
 previousFilename = ''
 previousData = {}
 
-current = []
+currentData = {}
+currentReport = []
 	
 # check for previous run file, load previous data into memory
 if (os.path.exists(storeName + '/' + storeName)):
@@ -100,36 +101,33 @@ while (currentPage <= totalPages):
 	
 	for eachItem in searchResults['item']:
 		itemId = eachItem['itemId'][0]
+		price = eachItem['sellingStatus'][0]['currentPrice'][0]['__value__']
 		
-		current_item = {
+		currentItem = {
 			'itemId' : itemId,
-			'price' : eachItem['sellingStatus'][0]['currentPrice'][0]['__value__'],
-			'url' : eachItem['viewItemURL'][0]
+			'price' : price
 		}
-						
-		# if no previous run, don't worry about reporting stuff
-		if (previousData == {}):
-			current.append(current_item)
-			continue
+				
+		# add the current item to the current data set no matter what
+		currentData[itemId] = price
 			
-		# If not in previous data, mark as new item
-		if (itemId not in previousData):
-			current_item['last_price'] = 'N/A'
-			current_item['price_difference'] = 'N/A'
-			current_item['status'] = 'NEW'
-		else:
-			current_item['last_price'] = previousData[itemId]
-			difference = float(current_item['price']) - float(current_item['last_price'])
-			current_item['price_difference'] = difference
+		# If item in previous data set, add it to the report if there's been a change
+		if (itemId in previousData):
+			price_difference = float(currentItem['price']) - float(previousData[itemId])
 			
-			if (difference < 0):
-				current_item['status'] = 'REDUCED'
-			elif (difference > 0):
-				current_item['status'] = 'INCREASED'
-			else:
-				current_item['status'] = 'NOCHANGE'
-		
-		current.append(current_item)
+			# If there's been no change in the price, don't add it to the report
+			if (price_difference == 0): 
+				continue
+					
+			currentItem['last_price'] = previousData[itemId]
+			currentItem['price_difference'] = price_difference
+			
+			if (price_difference < 0):
+				currentItem['status'] = 'REDUCED'
+			elif (price_difference > 0):
+				currentItem['status'] = 'INCREASED'
+				
+			currentReport.append(currentItem)
 	
 	currentPage = currentPage + 1
 	
