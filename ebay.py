@@ -48,8 +48,7 @@ if (not len(sys.argv) == 2):
 	print("Usage: python ebay.py [storeName]")
 	exit()	
 
-s3 = boto3.resource('s3')
-bucket = s3.Bucket('ebayreports')
+s3 = boto3.client('s3')
 
 storeName = sys.argv[1]
 	
