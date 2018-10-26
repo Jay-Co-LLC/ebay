@@ -39,7 +39,7 @@ def writeOutAndClose():
 				if (eachItem['status'] != 'NOCHANGE'):
 					writer.writerow(eachItem)
 			
-		s3.upload_file(storeName + '/REPORT__' + filename, 'ebayreports', storeName + '/REPORT__' + filename)
+		s3.upload_file(storeName + '/REPORT__' + filename, 'ebayreports', storeName + '/' + filename)
 
 	print('DONE')
 	exit()
