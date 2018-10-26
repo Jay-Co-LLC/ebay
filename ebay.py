@@ -39,7 +39,7 @@ def writeOutAndClose():
 				if (eachItem['status'] != 'NOCHANGE'):
 					writer.writerow(eachItem)
 			
-			bucket.upload_fileobj(reportfile, 'REPORT__' + filename)
+		s3.upload_file(storeName + '/REPORT__' + filename, 'ebayreports', storeName + '/REPORT__' + filename)
 
 	print('DONE')
 	exit()
