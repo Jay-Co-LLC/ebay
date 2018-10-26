@@ -99,6 +99,7 @@ while (currentPage <= totalPages):
 	totalPages = int(obj['findItemsIneBayStoresResponse'][0]['paginationOutput'][0]['totalPages'][0])	
 	searchResults = obj['findItemsIneBayStoresResponse'][0]['searchResult'][0]
 	
+	# loop through each item in the current page of results, add it to data, add it to report if needed
 	for eachItem in searchResults['item']:
 		itemId = eachItem['itemId'][0]
 		price = eachItem['sellingStatus'][0]['currentPrice'][0]['__value__']
@@ -130,5 +131,36 @@ while (currentPage <= totalPages):
 			currentReport.append(currentItem)
 	
 	currentPage = currentPage + 1
-	
+
+# Once we've gotten through all the listings, use set operations to find new and removed listings (DISABLED)
+if False:
+	if previousData:
+		currentSkus = set([itemid for itemid in currentData])
+		previousSkus = set([itemid for itemid in previousData])
+
+		newItems = currentSkus - previousSkus
+		removedItems = previousSkus - currentSkus
+
+		if newItems:
+			for itemid in newItems:
+				toAdd = {
+					'itemId' : itemid,
+					'price' : currentData[itemid],
+					'last_price' : '',
+					'price_difference' : '',
+					'status' : 'NEW'
+					}
+				currentReport.append(toAdd)
+				
+		if removedItems:
+			for itemid in removedItems:
+				toAdd = {
+					'itemId' : itemid,
+					'price' : '',
+					'last_price' : previousData[itemid],
+					'price_difference' : '',
+					'status' : 'REMOVED'
+					}
+				currentReport.append(toAdd)
+			
 writeOutAndClose()
