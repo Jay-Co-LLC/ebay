@@ -5,6 +5,10 @@ import csv
 import datetime
 import requests
 
+def printInstant(string):
+	sys.stdout.write(string)
+	sys.stdout.flush()
+
 def mkdirIfNotExists(path):
 	if (not os.path.isdir(path)):
 		os.mkdir(path)
@@ -33,7 +37,8 @@ def writeOutAndClose():
 			for eachItem in current:
 				if (eachItem['status'] != 'NOCHANGE'):
 					writer.writerow(eachItem)
-		
+	
+	print('DONE')
 	exit()
 
 if (not len(sys.argv) == 2):
@@ -75,11 +80,13 @@ while (currentPage <= totalPages):
 	currentParams['paginationInput.pageNumber'] = currentPage
 	
 	r = requests.get(baseurl, params=currentParams)
-
+	
 	if (r.status_code != 200):
-		print("ERROR! " + str(r.status_code))
-		print("Dumping what I have and exiting.")
+		print("ERROR: " + str(r.status_code))
+		print("Dumping what I have and exiting...")
 		writeOutAndClose()
+		
+	printInstant('.')
 		
 	obj = r.json()
 	
