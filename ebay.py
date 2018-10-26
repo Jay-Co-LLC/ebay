@@ -38,7 +38,8 @@ def writeOutAndClose():
 			for eachItem in currentReport:
 				if (eachItem['status'] != 'NOCHANGE'):
 					writer.writerow(eachItem)
-		bucket.upload_fileobj(reportfile, 'REPORT__' + filename)
+			
+			bucket.upload_fileobj(reportfile, 'REPORT__' + filename)
 
 	print('DONE')
 	exit()
