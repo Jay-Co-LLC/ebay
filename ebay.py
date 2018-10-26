@@ -3,6 +3,7 @@ import sys
 import os
 import csv
 import datetime
+import boto3
 import requests
 
 def printInstant(string):
@@ -37,6 +38,7 @@ def writeOutAndClose():
 			for eachItem in currentReport:
 				if (eachItem['status'] != 'NOCHANGE'):
 					writer.writerow(eachItem)
+		bucket.upload_fileobj(reportfile, 'REPORT__' + filename)
 
 	print('DONE')
 	exit()
@@ -44,7 +46,10 @@ def writeOutAndClose():
 if (not len(sys.argv) == 2):
 	print("Usage: python ebay.py [storeName]")
 	exit()	
-	
+
+s3 = boto3.resource('s3')
+bucket = s3.Bucket('ebayreports')
+
 storeName = sys.argv[1]
 	
 baseurl = 'https://svcs.ebay.com/services/search/FindingService/v1'
