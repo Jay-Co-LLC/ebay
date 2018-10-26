@@ -32,11 +32,10 @@ def writeOutAndClose():
 	# write out the report
 	if (previousData != {}):
 		with open(storeName + '/REPORT__' + filename, 'w', newline='') as reportfile:
-			writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status', 'title', 'url'])
+			writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status','url'])
 			writer.writeheader()
 			for eachItem in current:
 				if (eachItem['status'] != 'NOCHANGE'):
-					eachItem['title'] = eachItem['title'].decode('utf-8', 'ignore')
 					writer.writerow(eachItem)
 
 	print('DONE')
@@ -105,7 +104,6 @@ while (currentPage <= totalPages):
 		current_item = {
 			'itemId' : itemId,
 			'price' : eachItem['sellingStatus'][0]['currentPrice'][0]['__value__'],
-			'title' : eachItem['title'][0].encode('utf-8'),
 			'url' : eachItem['viewItemURL'][0]
 		}
 						
