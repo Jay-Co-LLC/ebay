@@ -12,10 +12,6 @@ def main(event, context):
 		timestamp = datetime.datetime.now().strftime("%Y%m%d%I%M%S%p%f")
 		filename = timestamp + '.csv'
 		
-		# write out the filename of this run to use for comparing to next run
-		with open('/tmp/' + storeName, 'w') as outfile:
-			outfile.write(filename)
-		
 		# write out the data
 		with open('/tmp/DATA__' + filename, 'w', newline='') as outfile:
 			writer = csv.writer(outfile)
@@ -33,8 +29,7 @@ def main(event, context):
 			
 			s3.Object('ebayreports', storeName + '/REPORT__' + filename).put(Body=open('/tmp/REPORT__' + filename, 'rb'))
 			
-		s3.Object('ebayreports', storeName + '/DATA__' + filename).put(Body=open('/tmp/DATA__' + filename, 'rb'))
-		s3.Object('ebayreports', storeName + '/' + storeName).put(Body=open('/tmp/' + storeName, 'rb'))
+		s3.Object('ebayreports', storeName + '/DATA').put(Body=open('/tmp/DATA__' + filename, 'rb'))
 	
 	s3 = boto3.resource('s3')
 	bucket = s3.Bucket('ebayreports')
@@ -65,24 +60,25 @@ def main(event, context):
 	currentPage = 1
 	totalPages = 1
 	
-	# check for previous run file, load previous data into memory
+	# Load previous data file into memory if it exists
 	try:
-		response = bucket.Object(storeName + '/' + storeName).get()
-		previousFilename = response['Body'].read().decode('utf-8')
+		previousDataFileObj = bucket.Object(storeName + '/DATA')
 	except:
-		logger.info("No previous run file detected.")
+		logger.info("No data file detected for " + storeName)
 	
-	if (previousFilename):
+	if (previousDataFileObj):
 		try:
-			filetograb = storeName + '/DATA__' + previousFilename
-			response2 = bucket.Object(filetograb).get()
+			res = previousDataFileObj.get()
 		except:
-			logger.error("Could not find previous data file")
+			logger.error("Could not get previous data file")
 		
 		try:
-			previousData = dict([each.split(',') for each in response2['Body'].read().decode('utf-8').split()])
+			previousData = dict([each.split(',') for each in res['Body'].read().decode('utf-8').split()])
 		except:
 			logger.error("Unable to parse previous data file")
+			
+		# Now that we've loaded the previous data file into memory, delete the previous data file
+		previousDataFileObj.delete()
 		
 	while (currentPage <= totalPages):
 		currentParams = baseparams
@@ -102,7 +98,7 @@ def main(event, context):
 			logger.error("eBay API ACK Failure: " + obj['findItemsIneBayStoresResponse'][0]['errorMessage'][0]['error'][0]['message'][0])
 			logger.error("Dumping what I have and exiting.")
 			writeOutAndClose()
-			raise Exception("eBay API ACK FAILURE: " + obj['findItemsIneBayStoresResponse'][0]['errorMessage'][0]['error'][0]['message'][0]")
+			raise Exception("eBay API ACK FAILURE")
 			
 		totalPages = int(obj['findItemsIneBayStoresResponse'][0]['paginationOutput'][0]['totalPages'][0])	
 		searchResults = obj['findItemsIneBayStoresResponse'][0]['searchResult'][0]
@@ -141,7 +137,7 @@ def main(event, context):
 		currentPage = currentPage + 1
 	
 	# Once we've gotten through all the listings, use set operations to find new and removed listings
-	if False:
+	if True:
 		if previousData:
 			currentSkus = set([itemid for itemid in currentData])
 			previousSkus = set([itemid for itemid in previousData])
