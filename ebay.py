@@ -161,22 +161,42 @@ def main(event, context):
 		currentPage = currentPage + 1
 	
 	# Once we've gotten through all the listings, use set operations to find new and removed listings
-	if False:
-		if previousData:
-			currentSkus = set([itemid for itemid in currentData])
-			previousSkus = set([itemid for itemid in previousData])
-	
-			removedItems = previousSkus - currentSkus
-	
-			if removedItems:
-				for itemid in removedItems:
-					toAdd = {
-						'itemId' : itemid,
-						'price' : '',
-						'last_price' : previousData[itemid],
-						'price_difference' : '',
-						'status' : 'REMOVED'
-						}
-					currentReport.append(toAdd)
+	if previousData:
+		currentSkus = set([itemid for itemid in currentData])
+		previousSkus = set([itemid for itemid in previousData])
+
+		removedItems = previousSkus - currentSkus
+
+		if removedItems:
+			for itemid in removedItems:
+				# Call the eBay API for each itemid to see if it returns a listing, to eliminate false positives
+				currentParams = {
+					'OPERATION-NAME' : 'findItemsByKeyword',
+					'SERVICE-VERSION' : '1.0.0',
+					'SECURITY-APPNAME' : apiKey,
+					'RESPONSE-DATA-FORMAT' : 'JSON',
+					'REST-PAYLOAD' : ''
+					}
+					
+				currentParams['keywords'] = str(itemid)	
+		
+				r = requests.get(baseurl, params=currentParams)
+				
+				obj = r.json()
+				
+				print(obj)
+				
+				# if the count returned is not 0, this itemid is an active listing so it wasn't removed
+				if (obj[0]['searchResult'][0]['@count'] > 0):
+					continue
+				
+				toAdd = {
+					'itemId' : itemid,
+					'price' : '',
+					'last_price' : previousData[itemid],
+					'price_difference' : '',
+					'status' : 'REMOVED'
+					}
+				currentReport.append(toAdd)
 				
 	writeOutAndClose()
