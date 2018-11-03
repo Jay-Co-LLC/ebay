@@ -6,104 +6,89 @@ import boto3
 import logging
 import requests
 
-def main(event, context):
+s3 = boto3.resource('s3')
+bucket = s3.Bucket('ebayreports')
 
-	def writeOutAndClose():	
-		timestamp = datetime.datetime.now().strftime("%Y%m%d%I%M%S%p%f")
-		filename = timestamp + '.csv'
+logger = logging.getLogger()
+
+storeName = os.environ['storeName']
+apiKey = os.environ['apiKey']
+
+baseurl = 'https://svcs.ebay.com/services/search/FindingService/v1'
+	
+baseparams = {
+	'OPERATION-NAME' : 'findItemsIneBayStores',
+	'SERVICE-VERSION' : '1.0.0',
+	'SECURITY-APPNAME' : apiKey,
+	'RESPONSE-DATA-FORMAT' : 'JSON',
+	'REST-PAYLOAD' : '',
+	'storeName' : storeName,
+	'paginationInput.pageNumber' : '1'
+	}
+
+previousFilename = ''
+previousData = {}
+previousTimestamp = ''
+
+currentData = {}
+currentReport = []
+
+def writeOutAndClose():	
+	timestamp = datetime.datetime.now().strftime("%Y%m%d%I%M%S%p%f")
+	filename = timestamp + '.csv'
+	
+	# write out the timestamp of this run
+	with open('/tmp/LASTRUN', 'w', newline='') as timefile:
+		timefile.write(timestamp)
+	
+	# write out the data
+	with open('/tmp/DATA__' + filename, 'w', newline='') as outfile:
+		writer = csv.writer(outfile)
+		for itemid in currentData:
+			writer.writerow([itemid, currentData[itemid]])
+				
+	# write out the report
+	if (currentReport != []):
+		with open('/tmp/REPORT__' + filename, 'w', newline='') as reportfile:
+			writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status','url','list_date'])
+			writer.writeheader()
+			for eachItem in currentReport:
+				writer.writerow(eachItem)
 		
-		# write out the timestamp of this run
-		with open('/tmp/LASTRUN', 'w', newline='') as timefile:
-			timefile.write(timestamp)
+		s3.Object('ebayreports', storeName + '/REPORT__' + filename).put(Body=open('/tmp/REPORT__' + filename, 'rb'))
 		
-		# write out the data
-		with open('/tmp/DATA__' + filename, 'w', newline='') as outfile:
-			writer = csv.writer(outfile)
-			for itemid in currentData:
-				writer.writerow([itemid, currentData[itemid]])
-					
-		# write out the report
-		if (currentReport != []):
-			with open('/tmp/REPORT__' + filename, 'w', newline='') as reportfile:
-				writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status','url','list_date'])
-				writer.writeheader()
-				for eachItem in currentReport:
-					writer.writerow(eachItem)
-			
-			s3.Object('ebayreports', storeName + '/REPORT__' + filename).put(Body=open('/tmp/REPORT__' + filename, 'rb'))
-			
-		s3.Object('ebayreports', storeName + '/LASTRUN').put(Body=open('/tmp/LASTRUN', 'rb'))	
-		s3.Object('ebayreports', storeName + '/DATA').put(Body=open('/tmp/DATA__' + filename, 'rb'))
+	s3.Object('ebayreports', storeName + '/LASTRUN').put(Body=open('/tmp/LASTRUN', 'rb'))	
+	s3.Object('ebayreports', storeName + '/DATA').put(Body=open('/tmp/DATA__' + filename, 'rb'))
 	
-	s3 = boto3.resource('s3')
-	bucket = s3.Bucket('ebayreports')
-	
-	logger = logging.getLogger()
-	
-	storeName = os.environ['storeName']
-	apiKey = os.environ['apiKey']
-	
-	baseurl = 'https://svcs.ebay.com/services/search/FindingService/v1'
+def getLastRunTime():
+	try:
+		return datetime.datetime.strptime(bucket.Object(storeName + '/LASTRUN').get()['Body'].read().decode('utf-8'), '%Y%m%d%I%M%S%p%f')
+	except:
+		logger.error("LASTRUN file does not exist or is corrupt")
+		return ''
 		
-	baseparams = {
-		'OPERATION-NAME' : 'findItemsIneBayStores',
-		'SERVICE-VERSION' : '1.0.0',
-		'SECURITY-APPNAME' : apiKey,
-		'RESPONSE-DATA-FORMAT' : 'JSON',
-		'REST-PAYLOAD' : '',
-		'storeName' : storeName,
-		'paginationInput.pageNumber' : '1'
-		}
+def getLastRunData():
+	try:
+		previousDataFileObj = bucket.Object(storeName + '/DATA')
+		res = previousDataFileObj.get()
+		ret = dict([each.split(',') for each in res['Body'].read().decode('utf-8').split()])
+		previousDataFileObj.delete()
+		return ret
+	except:
+		logger.error("DATA file does not exist or is corrupt")
+		return {}
+		
+
+def main(event, context):
 	
-	previousFilename = ''
-	previousData = {}
-	previousTimestamp = ''
+	# Get timestamp of last run
+	previousTimeObj = getLastRunTime()
 	
-	currentData = {}
-	currentReport = []
+	# Load previous data file into memory if it exists
+	previousData = getLastRunData()
 	
 	currentPage = 1
 	totalPages = 1
-	
-	# Get timestamp of last run
-	try:
-		lastRunFileObj = bucket.Object(storeName + '/LASTRUN')
-	except:
-		logger.info("No LASTRUN file for " + storeName)
-		
-	if (lastRunFileObj):
-		try:
-			res = lastRunFileObj.get()
-		except:
-			logger.error("Could not get LASTRUN file")
-		
-		try:
-			previousTimestamp = res['Body'].read().decode('utf-8')
-		except:
-			logger.error("Could not parse timestamp")
-		
-		if (previousTimestamp):
-			previousTimeObj = datetime.datetime.strptime(previousTimestamp, '%Y%m%d%I%M%S%p%f')
-	
-	# Load previous data file into memory if it exists
-	try:
-		previousDataFileObj = bucket.Object(storeName + '/DATA')
-	except:
-		logger.info("No data file detected for " + storeName)
-	
-	if (previousDataFileObj):
-		try:
-			res = previousDataFileObj.get()
-		except:
-			logger.error("Could not get previous data file")
-		
-		try:
-			previousData = dict([each.split(',') for each in res['Body'].read().decode('utf-8').split()])
-		except:
-			logger.error("Unable to parse previous data file")
-			
-		# Now that we've loaded the previous data file into memory, delete the previous data file
-		previousDataFileObj.delete()
 		
 	while (currentPage <= totalPages):
 		currentParams = baseparams
