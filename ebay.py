@@ -56,7 +56,7 @@ def writeOutAndClose():
 				writer.writerow(eachItem)
 		
 		s3.Object('ebayreports', storeName + '/REPORT__' + filename).put(Body=open('/tmp/REPORT__' + filename, 'rb'))
-		
+
 	s3.Object('ebayreports', storeName + '/LASTRUN').put(Body=open('/tmp/LASTRUN', 'rb'))	
 	s3.Object('ebayreports', storeName + '/DATA').put(Body=open('/tmp/DATA__' + filename, 'rb'))
 	
@@ -171,7 +171,7 @@ def main(event, context):
 			for itemid in removedItems:
 				# Call the eBay API for each itemid to see if it returns a listing, to eliminate false positives
 				currentParams = {
-					'OPERATION-NAME' : 'findItemsByKeyword',
+					'OPERATION-NAME' : 'findItemsByKeywords',
 					'SERVICE-VERSION' : '1.0.0',
 					'SECURITY-APPNAME' : apiKey,
 					'RESPONSE-DATA-FORMAT' : 'JSON',
@@ -184,10 +184,8 @@ def main(event, context):
 				
 				obj = r.json()
 				
-				print(obj)
-				
 				# if the count returned is not 0, this itemid is an active listing so it wasn't removed
-				if (obj[0]['searchResult'][0]['@count'] > 0):
+				if (int(obj['findItemsByKeywordsResponse'][0]['searchResult'][0]['@count']) > 0):
 					continue
 				
 				toAdd = {
