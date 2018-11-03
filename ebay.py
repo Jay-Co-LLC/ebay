@@ -12,6 +12,10 @@ def main(event, context):
 		timestamp = datetime.datetime.now().strftime("%Y%m%d%I%M%S%p%f")
 		filename = timestamp + '.csv'
 		
+		# write out the timestamp of this run
+		with open('/tmp/LASTRUN', 'w', newline='') as timefile:
+			timefile.write(timestamp)
+		
 		# write out the data
 		with open('/tmp/DATA__' + filename, 'w', newline='') as outfile:
 			writer = csv.writer(outfile)
@@ -21,14 +25,14 @@ def main(event, context):
 		# write out the report
 		if (currentReport != []):
 			with open('/tmp/REPORT__' + filename, 'w', newline='') as reportfile:
-				writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status','url'])
+				writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status','url','list_date'])
 				writer.writeheader()
 				for eachItem in currentReport:
-					if (eachItem['status'] != 'NOCHANGE'):
-						writer.writerow(eachItem)
+					writer.writerow(eachItem)
 			
 			s3.Object('ebayreports', storeName + '/REPORT__' + filename).put(Body=open('/tmp/REPORT__' + filename, 'rb'))
 			
+		s3.Object('ebayreports', storeName + '/LASTRUN').put(Body=open('/tmp/LASTRUN', 'rb'))	
 		s3.Object('ebayreports', storeName + '/DATA').put(Body=open('/tmp/DATA__' + filename, 'rb'))
 	
 	s3 = boto3.resource('s3')
@@ -53,12 +57,33 @@ def main(event, context):
 	
 	previousFilename = ''
 	previousData = {}
+	previousTimestamp = ''
 	
 	currentData = {}
 	currentReport = []
 	
 	currentPage = 1
 	totalPages = 1
+	
+	# Get timestamp of last run
+	try:
+		lastRunFileObj = bucket.Object(storeName + '/LASTRUN')
+	except:
+		logger.info("No LASTRUN file for " + storeName)
+		
+	if (lastRunFileObj):
+		try:
+			res = lastRunFileObj.get()
+		except:
+			logger.error("Could not get LASTRUN file")
+		
+		try:
+			previousTimestamp = res['Body'].read().decode('utf-8')
+		except:
+			logger.error("Could not parse timestamp")
+		
+		if (previousTimestamp):
+			previousTimeObj = datetime.datetime.strptime(previousTimestamp, '%Y%m%d%I%M%S%p%f')
 	
 	# Load previous data file into memory if it exists
 	try:
@@ -132,30 +157,32 @@ def main(event, context):
 				elif (price_difference > 0):
 					currentItem['status'] = 'INCREASED'
 					
+				currentItem['list_date'] = eachItem['listingInfo'][0]['startTime'][0]
+					
 				currentReport.append(currentItem)
+			else:
+				# if item id not in previous data, check timestamps to see if it's actually new
+				currentListTime = datetime.datetime.strptime(eachItem['listingInfo'][0]['startTime'][0],'%Y-%m-%dT%H:%M:%S.000Z')
+
+				if (previousTimestamp and previousTimeObj <= currentListTime):
+					currentItem['status'] = 'NEW'
+					currentItem['last_price'] = ''
+					currentItem['price_difference'] = ''
+					currentItem['list_date'] = eachItem['listingInfo'][0]['startTime'][0]
+				
+					currentReport.append(currentItem)
+				
 		
 		currentPage = currentPage + 1
 	
 	# Once we've gotten through all the listings, use set operations to find new and removed listings
-	if True:
+	if False:
 		if previousData:
 			currentSkus = set([itemid for itemid in currentData])
 			previousSkus = set([itemid for itemid in previousData])
 	
-			newItems = currentSkus - previousSkus
 			removedItems = previousSkus - currentSkus
 	
-			if newItems:
-				for itemid in newItems:
-					toAdd = {
-						'itemId' : itemid,
-						'price' : currentData[itemid],
-						'last_price' : '',
-						'price_difference' : '',
-						'status' : 'NEW'
-						}
-					currentReport.append(toAdd)
-					
 			if removedItems:
 				for itemid in removedItems:
 					toAdd = {
