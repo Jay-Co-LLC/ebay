@@ -50,29 +50,29 @@ def writeOutAndClose(storeName, currentData, currentReport):
 		for eachItem in currentReport:
 			ws.append([eachItem['itemId'], eachItem['status'], eachItem['title'], eachItem['price'], eachItem['last_price'], eachItem['price_difference'], eachItem['url']])
 			
-		wb.save('/tmp/REPORT__' + timestamp + '.xlsx')
+		wb.save(f"/tmp/REPORT__{timestamp}.xlsx")
 		
-		s3.Object('ebayreports', storeName + '/REPORT - ' + storeName + ' - ' + currentDate.strftime('%m-%d-%Y %I:%M%p') + '.xlsx').put(Body=open('/tmp/REPORT__' + timestamp + '.xlsx', 'rb'))
+		s3.Object('ebayreports', f"{storeName}/REPORT - {storeName} - {currentDate.strftime('%m-%d-%Y %I:%M%p')}.xlsx").put(Body=open(f"/tmp/REPORT__{timestamp}.xlsx", 'rb'))
 
-	s3.Object('ebayreports', storeName + '/LASTRUN').put(Body=open('/tmp/LASTRUN', 'rb'))	
-	s3.Object('ebayreports', storeName + '/DATA').put(Body=open('/tmp/DATA__' + filename, 'rb'))
+	s3.Object('ebayreports', f"{storeName}/LASTRUN").put(Body=open("/tmp/LASTRUN", 'rb'))	
+	s3.Object('ebayreports', f"{storeName}/DATA").put(Body=open(f"/tmp/DATA__{filename}", 'rb'))
 	
 def getLastRunTime(storeName):
 	try:
-		return datetime.datetime.strptime(bucket.Object(storeName + '/LASTRUN').get()['Body'].read().decode('utf-8'), '%Y%m%d%I%M%S%p%f')
+		return datetime.datetime.strptime(bucket.Object(f"{storeName}/LASTRUN").get()['Body'].read().decode('utf-8'), '%Y%m%d%I%M%S%p%f')
 	except:
 		logger.error("LASTRUN file does not exist or is corrupt")
 		return ''
 		
 def getLastRunData(storeName):
 	try:
-		previousDataFileObj = bucket.Object(storeName + '/DATA')
+		previousDataFileObj = bucket.Object(f"{storeName}/DATA")
 		res = previousDataFileObj.get()
 		ret = dict([each.split(',') for each in res['Body'].read().decode('utf-8').split()])
 		previousDataFileObj.delete()
 		return ret
 	except:
-		logger.error("DATA file does not exist or is corrupt [" + storeName + "]")
+		logger.error(f"DATA file does not exist or is corrupt [{storeName}]")
 		return {}
 		
 def main(event, context):
@@ -102,16 +102,14 @@ def main(event, context):
 			r = requests.get(baseurl, params=currentParams)
 			
 			if (r.status_code != 200):
-				logger.error("Unable to complete eBay API request " + str(currentPage) + "/" + str(totalPages) + ": " + str(r.status_code))
-				logger.error("Dumping what I have and exiting...")
+				logger.error(f"Unable to complete eBay API request{str(currentPage)}/{str(totalPages)}:{str(r.status_code)}")
 				writeOutAndClose()
 				raise Exception("eBay API GET Request Failed:  " + r.status_code)
 		
 			obj = r.json()
 			
 			if (obj['findItemsIneBayStoresResponse'][0]['ack'][0] == "Failure"):
-				logger.error("eBay API ACK Failure: " + obj['findItemsIneBayStoresResponse'][0]['errorMessage'][0]['error'][0]['message'][0] + ': ' + storeName)
-				logger.error("Dumping what I have and exiting.")
+				logger.error(f"eBay API ACK Failure: {obj['findItemsIneBayStoresResponse'][0]['errorMessage'][0]['error'][0]['message'][0]} [{storeName}]")
 				writeOutAndClose(storeName, currentData, currentReport)
 				raise Exception("eBay API ACK FAILURE")
 				
@@ -201,7 +199,8 @@ def main(event, context):
 						'last_price' : previousData[itemid],
 						'price_difference' : '',
 						'status' : 'REMOVED',
-						'title' : ''
+						'title' : '',
+						'url' : ''
 						}
 					currentReport.append(toAdd)
 					
