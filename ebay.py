@@ -155,7 +155,7 @@ def main(event, context):
 					# if item id not in previous data, check timestamps to see if it's actually new
 					currentListTime = datetime.datetime.strptime(eachItem['listingInfo'][0]['startTime'][0],'%Y-%m-%dT%H:%M:%S.000Z')
 
-					if (True or previousTimestamp and previousTimeObj <= currentListTime):
+					if (previousTimestamp and previousTimeObj <= currentListTime):
 						currentItem['status'] = 'NEW'
 						currentItem['last_price'] = ''
 						currentItem['price_difference'] = ''
@@ -192,7 +192,7 @@ def main(event, context):
 					obj = r.json()
 					
 					# if the count returned is not 0, this itemid is an active listing so it wasn't removed
-					if (False and int(obj['findItemsByKeywordsResponse'][0]['searchResult'][0]['@count']) > 0):
+					if (int(obj['findItemsByKeywordsResponse'][0]['searchResult'][0]['@count']) > 0):
 						continue
 					
 					toAdd = {
