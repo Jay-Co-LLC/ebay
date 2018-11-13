@@ -2,6 +2,7 @@ import sys
 import os
 import csv
 import datetime
+import openpyxl as XL
 import boto3
 import logging
 import requests
@@ -34,7 +35,8 @@ currentData = {}
 currentReport = []
 
 def writeOutAndClose():	
-	timestamp = datetime.datetime.now().strftime("%Y%m%d%I%M%S%p%f")
+	currentDate = datetime.datetime.now() - datetime.timedelta(hours=8)
+	timestamp = currentDate.strftime("%Y%m%d%I%M%S%p%f")
 	filename = timestamp + '.csv'
 	
 	# write out the timestamp of this run
@@ -49,13 +51,15 @@ def writeOutAndClose():
 				
 	# write out the report
 	if (currentReport != []):
-		with open('/tmp/REPORT__' + filename, 'w', newline='') as reportfile:
-			writer = csv.DictWriter(reportfile, fieldnames=['itemId','price','last_price','price_difference','status','url','list_date'])
-			writer.writeheader()
-			for eachItem in currentReport:
-				writer.writerow(eachItem)
+		wb = XL.Workbook()
+		ws = wb.active
+		ws.append(['itemId','status','title','price','last_price','price_difference','url'])
+		for eachItem in currentReport:
+			ws.append([eachItem['itemId'], eachItem['status'], eachItem['title'], eachItem['price'], eachItem['last_price'], eachItem['price_difference'], eachItem['url']])
+			
+		wb.save('/tmp/REPORT__' + timestamp + '.xlsx')
 		
-		s3.Object('ebayreports', storeName + '/REPORT__' + filename).put(Body=open('/tmp/REPORT__' + filename, 'rb'))
+		s3.Object('ebayreports', storeName + '/REPORT - ' + storeName + ' - ' + currentDate.strftime('%m-%d-%Y %I:%M%p') + '.xlsx').put(Body=open('/tmp/REPORT__' + timestamp + '.xlsx', 'rb'))
 
 	s3.Object('ebayreports', storeName + '/LASTRUN').put(Body=open('/tmp/LASTRUN', 'rb'))	
 	s3.Object('ebayreports', storeName + '/DATA').put(Body=open('/tmp/DATA__' + filename, 'rb'))
@@ -142,7 +146,8 @@ def main(event, context):
 				elif (price_difference > 0):
 					currentItem['status'] = 'INCREASED'
 					
-				currentItem['list_date'] = eachItem['listingInfo'][0]['startTime'][0]
+				currentItem['title'] = eachItem['title'][0]
+				currentItem['url'] = eachItem['viewItemURL'][0]
 					
 				currentReport.append(currentItem)
 			else:
@@ -153,14 +158,15 @@ def main(event, context):
 					currentItem['status'] = 'NEW'
 					currentItem['last_price'] = ''
 					currentItem['price_difference'] = ''
-					currentItem['list_date'] = eachItem['listingInfo'][0]['startTime'][0]
+					currentItem['title'] = eachItem['title'][0]
+					currentItem['url'] = eachItem['viewItemURL'][0]
 				
 					currentReport.append(currentItem)
 				
 		
 		currentPage = currentPage + 1
 	
-	# Once we've gotten through all the listings, use set operations to find new and removed listings
+	# Once we've gotten through all the listings, use set operations to find removed listings
 	if previousData:
 		currentSkus = set([itemid for itemid in currentData])
 		previousSkus = set([itemid for itemid in previousData])
