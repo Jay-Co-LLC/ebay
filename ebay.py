@@ -7,10 +7,10 @@ import boto3
 import logging
 import requests
 
-s3 = boto3.resource('s3')
-bucket = s3.Bucket('ebayreports')
+bucket = boto3.resource('s3').Bucket('ebayreports')
 
 logger = logging.getLogger()
+logger.setLevel(logging.ERROR)
 
 storeNames = os.environ['storeNames'].split(',')
 apiKey = os.environ['apiKey']
@@ -26,42 +26,56 @@ baseparams = {
 	'storeName' : storeNames[0],
 	'paginationInput.pageNumber' : '1'
 	}
+	
+report_fields = [
+	'itemid',
+	'status',
+	'title',
+	'price',
+	'last_price',
+	'price_difference',
+	'url'
+	]
+	
+currentDate = datetime.datetime.now() - datetime.timedelta(hours=8)
 
 def writeOutAndClose(storeName, currentData, currentReport):	
-	currentDate = datetime.datetime.now() - datetime.timedelta(hours=8)
-	timestamp = currentDate.strftime("%Y%m%d%I%M%S%p%f")
-	filename = timestamp + '.csv'
-	
+
 	# write out the timestamp of this run
-	with open('/tmp/LASTRUN', 'w', newline='') as timefile:
-		timefile.write(timestamp)
+	logger.info(f"[{storeName}] Writing LASTRUN...")
+	with open("/tmp/LASTRUN", 'w', newline='') as timeFile:
+		timeFile.write(f"{currentDate}")
 	
 	# write out the data
-	with open('/tmp/DATA__' + filename, 'w', newline='') as outfile:
-		writer = csv.writer(outfile)
+	logger.info(f"[{storeName}] Writing DATA...")
+	with open(f"/tmp/DATA", 'w', newline='') as dataFile:
+		writer = csv.writer(dataFile)
 		for itemid in currentData:
 			writer.writerow([itemid, currentData[itemid]])
 				
 	# write out the report
-	if (currentReport != []):
+	if currentReport:
+		logger.info(f"[{storeName}] Writing REPORT...")
 		wb = XL.Workbook()
 		ws = wb.active
-		ws.append(['itemId','status','title','price','last_price','price_difference','url'])
-		for eachItem in currentReport:
-			ws.append([eachItem['itemId'], eachItem['status'], eachItem['title'], eachItem['price'], eachItem['last_price'], eachItem['price_difference'], eachItem['url']])
-			
-		wb.save(f"/tmp/REPORT__{timestamp}.xlsx")
+		ws.append(report_fields)
 		
-		s3.Object('ebayreports', f"{storeName}/REPORT - {storeName} - {currentDate.strftime('%m-%d-%Y %I:%M%p')}.xlsx").put(Body=open(f"/tmp/REPORT__{timestamp}.xlsx", 'rb'))
+		for eachItem in currentReport:
+			ws.append([eachItem[field] for field in report_fields])
+			
+		wb.save("/tmp/REPORT.xlsx")
+		
+		bucket.Object(f"{storeName}/REPORT - {storeName} - {currentDate.strftime('%m-%d-%Y %I:%M%p')}.xlsx").put(Body=open("/tmp/REPORT.xlsx", 'rb'))
 
-	s3.Object('ebayreports', f"{storeName}/LASTRUN").put(Body=open("/tmp/LASTRUN", 'rb'))	
-	s3.Object('ebayreports', f"{storeName}/DATA").put(Body=open(f"/tmp/DATA__{filename}", 'rb'))
+	bucket.Object(f"{storeName}/LASTRUN").put(Body=open("/tmp/LASTRUN", 'rb'))	
+	bucket.Object(f"{storeName}/DATA").put(Body=open(f"/tmp/DATA", 'rb'))
 	
 def getLastRunTime(storeName):
 	try:
-		return datetime.datetime.strptime(bucket.Object(f"{storeName}/LASTRUN").get()['Body'].read().decode('utf-8'), '%Y%m%d%I%M%S%p%f')
-	except:
-		logger.error("LASTRUN file does not exist or is corrupt")
+		timestring = bucket.Object(f"{storeName}/LASTRUN").get()['Body'].read().decode('utf-8')
+		return datetime.datetime.strptime(timestring, '%Y-%m-%d %H:%M:%S.%f')
+	except Exception as err:
+		logger.info(f"[{storeName}] Error reading LASTRUN: {err}")
 		return ''
 		
 def getLastRunData(storeName):
@@ -72,7 +86,7 @@ def getLastRunData(storeName):
 		previousDataFileObj.delete()
 		return ret
 	except:
-		logger.error(f"DATA file does not exist or is corrupt [{storeName}]")
+		logger.error(f"[{storeName}] Error reading DATA: {err}")
 		return {}
 		
 def main(event, context):
@@ -93,25 +107,29 @@ def main(event, context):
 		
 		currentPage = 1
 		totalPages = 1
+		
+		logger.info(f"[{storeName}] Starting...")
 			
 		while (currentPage <= totalPages):
 			currentParams = baseparams
 			currentParams['storeName'] = storeName
 			currentParams['paginationInput.pageNumber'] = currentPage
 			
+			logger.info(f"[{storeName}] Reading page {currentPage}/{totalPages}")
+			
 			r = requests.get(baseurl, params=currentParams)
 			
+			# if error retrieving data from eBay, move to next seller
+			# to avoid overwriting data file with partial data
 			if (r.status_code != 200):
-				logger.error(f"Unable to complete eBay API request{str(currentPage)}/{str(totalPages)}:{str(r.status_code)}")
-				writeOutAndClose()
-				raise Exception("eBay API GET Request Failed:  " + r.status_code)
+				logger.error(f"[{storeName}] HTTP response {r.status_code}")
+				break
 		
 			obj = r.json()
 			
 			if (obj['findItemsIneBayStoresResponse'][0]['ack'][0] == "Failure"):
-				logger.error(f"eBay API ACK Failure: {obj['findItemsIneBayStoresResponse'][0]['errorMessage'][0]['error'][0]['message'][0]} [{storeName}]")
-				writeOutAndClose(storeName, currentData, currentReport)
-				raise Exception("eBay API ACK FAILURE")
+				logger.error(f"[{storeName}] ACK FAILURE: {obj['findItemsIneBayStoresResponse'][0]['errorMessage'][0]['error'][0]['message'][0]}")
+				break
 				
 			totalPages = int(obj['findItemsIneBayStoresResponse'][0]['paginationOutput'][0]['totalPages'][0])	
 			searchResults = obj['findItemsIneBayStoresResponse'][0]['searchResult'][0]
@@ -122,7 +140,7 @@ def main(event, context):
 				price = eachItem['sellingStatus'][0]['currentPrice'][0]['__value__']
 				
 				currentItem = {
-					'itemId' : itemId,
+					'itemid' : itemId,
 					'price' : price
 				}
 						
@@ -194,7 +212,7 @@ def main(event, context):
 						continue
 					
 					toAdd = {
-						'itemId' : itemid,
+						'itemid' : itemid,
 						'price' : '',
 						'last_price' : previousData[itemid],
 						'price_difference' : '',
