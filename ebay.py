@@ -85,7 +85,7 @@ def getLastRunData(storeName):
 		ret = dict([each.split(',') for each in res['Body'].read().decode('utf-8').split()])
 		previousDataFileObj.delete()
 		return ret
-	except:
+	except Exception as err:
 		logger.error(f"[{storeName}] Error reading DATA: {err}")
 		return {}
 		
