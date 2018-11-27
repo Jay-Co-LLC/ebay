@@ -1,11 +1,11 @@
-import sys
 import os
 import csv
 import datetime
-import openpyxl as XL
+import requests
 import boto3
 import logging
-import requests
+import openpyxl as XL
+import xml.etree.ElementTree as ET
 
 bucket = boto3.resource('s3').Bucket('ebayreports')
 
@@ -13,18 +13,15 @@ logger = logging.getLogger()
 logger.setLevel(logging.ERROR)
 
 storeNames = os.environ['storeNames'].split(',')
-apiKey = os.environ['apiKey']
+apiKey = os.environ['key']
 
-baseurl = 'https://svcs.ebay.com/services/search/FindingService/v1'
+baseurl = 'https://api.ebay.com/ws/api.dll'
 	
 baseparams = {
-	'OPERATION-NAME' : 'findItemsIneBayStores',
-	'SERVICE-VERSION' : '1.0.0',
-	'SECURITY-APPNAME' : apiKey,
-	'RESPONSE-DATA-FORMAT' : 'JSON',
-	'REST-PAYLOAD' : '',
-	'storeName' : storeNames[0],
-	'paginationInput.pageNumber' : '1'
+	'Content-Type' : 'text/xml',
+	'X-EBAY-API-COMPATIBILITY-LEVEL' : '1081',
+	'X-EBAY-API-CALL-NAME' : 'GetSellerList',
+	'X-EBAY-API-SITEID' : '0'
 	}
 	
 report_fields = [
@@ -36,8 +33,33 @@ report_fields = [
 	'price_difference',
 	'url'
 	]
+
+pre = '{urn:ebay:apis:eBLBaseComponents}'
 	
 currentDate = datetime.datetime.now() - datetime.timedelta(hours=8)
+future = currentDate + datetime.timedelta(days=120)
+
+def getxml(page_number, userid):
+	return """
+<?xml version="1.0" encoding="utf-8"?>
+<GetSellerListRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+	<RequesterCredentials>
+    <eBayAuthToken>{}</eBayAuthToken>
+  </RequesterCredentials>
+  <EndTimeFrom>{}</EndTimeFrom>
+  <EndTimeTo>{}</EndTimeTo>
+  <Pagination>
+    <EntriesPerPage>200</EntriesPerPage>
+    <PageNumber>{}</PageNumber>
+  </Pagination>
+  <UserID>{}</UserID>
+  <DetailLevel>ReturnAll</DetailLevel>
+  <OutputSelector>ItemID</OutputSelector>
+  <OutputSelector>Title</OutputSelector>
+  <OutputSelector>PaginationResult</OutputSelector>
+  <OutputSelector>SellingStatus</OutputSelector>
+  <OutputSelector>ListingDetails</OutputSelector>
+</GetSellerListRequest>""".format(apiKey, currentDate, future, str(page_number), userid)
 
 def writeOutAndClose(storeName, currentData, currentReport):	
 
@@ -111,37 +133,35 @@ def main(event, context):
 		logger.info(f"[{storeName}] Starting...")
 			
 		while (currentPage <= totalPages):
-			currentParams = baseparams
-			currentParams['storeName'] = storeName
-			currentParams['paginationInput.pageNumber'] = currentPage
 			
 			logger.info(f"[{storeName}] Reading page {currentPage}/{totalPages}")
 			
-			r = requests.get(baseurl, params=currentParams)
+			r = requests.post(baseurl, data=getxml(currentPage, storeName), headers=baseparams)
 			
 			# if error retrieving data from eBay, move to next seller
 			# to avoid overwriting data file with partial data
 			if (r.status_code != 200):
 				logger.error(f"[{storeName}] HTTP response {r.status_code}")
 				break
-		
-			obj = r.json()
-			
-			if (obj['findItemsIneBayStoresResponse'][0]['ack'][0] == "Failure"):
-				logger.error(f"[{storeName}] ACK FAILURE: {obj['findItemsIneBayStoresResponse'][0]['errorMessage'][0]['error'][0]['message'][0]}")
-				break
 				
-			totalPages = int(obj['findItemsIneBayStoresResponse'][0]['paginationOutput'][0]['totalPages'][0])	
-			searchResults = obj['findItemsIneBayStoresResponse'][0]['searchResult'][0]
-			
+			root = ET.fromstring(r.content)
+		
+			totalPages = int(root.find(pre + 'PaginationResult').find(pre + 'TotalNumberOfPages').text)
+	
+			itemArr = root.find(pre + 'ItemArray')
+				
 			# loop through each item in the current page of results, add it to data, add it to report if needed
-			for eachItem in searchResults['item']:
-				itemId = eachItem['itemId'][0]
-				price = eachItem['sellingStatus'][0]['currentPrice'][0]['__value__']
+			for eachItem in itemArr:
+				itemId = eachItem.find(pre + 'ItemID').text
+				price = eachItem.find(pre + 'SellingStatus').find(pre + 'CurrentPrice').text
+				title = eachItem.find(pre + 'Title').text
+				url = eachItem.find(pre + 'ListingDetails').find(pre + 'ViewItemURL').text
 				
 				currentItem = {
 					'itemid' : itemId,
-					'price' : price
+					'price' : price,
+					'title' : title,
+					'url' : url
 				}
 						
 				# add the current item to the current data set no matter what
@@ -163,24 +183,14 @@ def main(event, context):
 					elif (price_difference > 0):
 						currentItem['status'] = 'INCREASED'
 						
-					currentItem['title'] = eachItem['title'][0]
-					currentItem['url'] = eachItem['viewItemURL'][0]
-						
 					currentReport.append(currentItem)
 				else:
-					# if item id not in previous data, check timestamps to see if it's actually new
-					currentListTime = datetime.datetime.strptime(eachItem['listingInfo'][0]['startTime'][0],'%Y-%m-%dT%H:%M:%S.000Z')
-
-					if (previousTimestamp and previousTimeObj <= currentListTime):
-						currentItem['status'] = 'NEW'
-						currentItem['last_price'] = ''
-						currentItem['price_difference'] = ''
-						currentItem['title'] = eachItem['title'][0]
-						currentItem['url'] = eachItem['viewItemURL'][0]
+					currentItem['status'] = 'NEW'
+					currentItem['last_price'] = ''
+					currentItem['price_difference'] = ''
 					
-						currentReport.append(currentItem)
+					currentReport.append(currentItem)
 					
-			
 			currentPage = currentPage + 1
 		
 		# Once we've gotten through all the listings, use set operations to find removed listings
@@ -191,26 +201,7 @@ def main(event, context):
 			removedItems = previousSkus - currentSkus
 
 			if removedItems:
-				for itemid in removedItems:
-					# Call the eBay API for each itemid to see if it returns a listing, to eliminate false positives
-					currentParams = {
-						'OPERATION-NAME' : 'findItemsByKeywords',
-						'SERVICE-VERSION' : '1.0.0',
-						'SECURITY-APPNAME' : apiKey,
-						'RESPONSE-DATA-FORMAT' : 'JSON',
-						'REST-PAYLOAD' : ''
-						}
-						
-					currentParams['keywords'] = str(itemid)	
-			
-					r = requests.get(baseurl, params=currentParams)
-					
-					obj = r.json()
-					
-					# if the count returned is not 0, this itemid is an active listing so it wasn't removed
-					if (int(obj['findItemsByKeywordsResponse'][0]['searchResult'][0]['@count']) > 0):
-						continue
-					
+				for itemid in removedItems:				
 					toAdd = {
 						'itemid' : itemid,
 						'price' : '',
