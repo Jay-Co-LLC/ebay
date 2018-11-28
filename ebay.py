@@ -105,10 +105,16 @@ def getLastRunTime(storeName):
 		
 def getLastRunData(storeName):
 	try:
-		previousDataFileObj = bucket.Object(f"{storeName}/DATA")
-		res = previousDataFileObj.get()
-		ret = dict([each.split(',') for each in res['Body'].read().decode('utf-8').split()])
-		previousDataFileObj.delete()
+		bucket.download_file(f"{storeName}/DATA", "/tmp/previousDataFile.xlsx")
+		lastData_wb = XL.load_workbook(filename = "/tmp/previousDataFile.xlsx", read_only=True)
+		lastData_ws = lastData_wb['Sheet']
+		
+		ret = {}
+		
+		for row in lastData_ws.rows:
+			ret[row[0].value] = row[1].value
+		
+		bucket.Object(f"{storeName}/DATA").delete()
 		return ret
 	except Exception as err:
 		logger.error(f"[{storeName}] Error reading DATA: {err}")
