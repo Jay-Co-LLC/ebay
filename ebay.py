@@ -69,11 +69,14 @@ def writeOutAndClose(storeName, currentData, currentReport):
 		timeFile.write(f"{currentDate}")
 	
 	# write out the data
-	logger.info(f"[{storeName}] Writing DATA...")
-	with open(f"/tmp/DATA", 'w', newline='') as dataFile:
-		writer = csv.writer(dataFile)
-		for itemid in currentData:
-			writer.writerow([itemid, currentData[itemid]])
+	logger.info(f"[{storeName}] Writing DATA.xlsx...")
+	wb_data = XL.Workbook()
+	ws_data = wb_data.active
+	
+	for itemid in currentData:
+		ws_data.append([itemid, currentData[itemid]])
+		
+	wb_data.save("/tmp/DATA.xlsx")
 				
 	# write out the report
 	if currentReport:
@@ -90,7 +93,7 @@ def writeOutAndClose(storeName, currentData, currentReport):
 		bucket.Object(f"{storeName}/REPORT - {storeName} - {currentDate.strftime('%m-%d-%Y %I:%M%p')}.xlsx").put(Body=open("/tmp/REPORT.xlsx", 'rb'))
 
 	bucket.Object(f"{storeName}/LASTRUN").put(Body=open("/tmp/LASTRUN", 'rb'))	
-	bucket.Object(f"{storeName}/DATA").put(Body=open(f"/tmp/DATA", 'rb'))
+	bucket.Object(f"{storeName}/DATA").put(Body=open(f"/tmp/DATA.xlsx", 'rb'))
 	
 def getLastRunTime(storeName):
 	try:
