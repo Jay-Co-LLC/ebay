@@ -75,22 +75,25 @@ def getLastRunData(storeName):
 		lastData_wb = XL.load_workbook(filename = "/tmp/previousDataFile.xlsx", read_only=True)
 		lastData_ws = lastData_wb['Sheet']
 		
-		ret = {}
+		prices = {}
+		titles = {}
 		
 		for row in lastData_ws.rows:
-			ret[row[0].value] = row[1].value
+			prices[row[0].value] = row[1].value
+			titles[row[0].value] = row[2].value
 		
 		bucket.Object(f"{storeName}/DATA").delete()
-		return ret
+		return prices,titles
 	except Exception as err:
 		logger.error(f"[{storeName}] Error reading DATA: {err}")
-		return {}
+		return {},{}
 		
 def main(event, context):
 	
 	for storeName in storeNames:
 		previousFilename = ''
 		previousData = {}
+		previousData_titles {}
 		previousTimestamp = ''
 
 		currentData = {}
@@ -101,7 +104,7 @@ def main(event, context):
 		previousTimeObj = getLastRunTime(storeName)
 		
 		# Load previous data file into memory if it exists
-		previousData = getLastRunData(storeName)
+		previousData,previousData_titles = getLastRunData(storeName)
 		
 		currentPage = 1
 		totalPages = 1
@@ -185,7 +188,7 @@ def main(event, context):
 						'last_price' : previousData[itemid],
 						'price_difference' : '',
 						'status' : 'REMOVED',
-						'title' : '',
+						'title' : previousData_titles[itemid],
 						'url' : ''
 						}
 					currentReport.append(toAdd)
