@@ -61,37 +61,6 @@ def getxml(page_number, userid):
   <OutputSelector>ListingDetails</OutputSelector>
 </GetSellerListRequest>""".format(apiKey, currentDate, future, str(page_number), userid)
 
-def writeOutAndClose(storeName, currentData, currentReport):	
-
-	# write out the timestamp of this run
-	logger.info(f"[{storeName}] Writing LASTRUN...")
-	with open("/tmp/LASTRUN", 'w', newline='') as timeFile:
-		timeFile.write(f"{currentDate}")
-	
-	# write out the data
-	logger.info(f"[{storeName}] Writing DATA...")
-	with open(f"/tmp/DATA", 'w', newline='') as dataFile:
-		writer = csv.writer(dataFile)
-		for itemid in currentData:
-			writer.writerow([itemid, currentData[itemid]])
-				
-	# write out the report
-	if currentReport:
-		logger.info(f"[{storeName}] Writing REPORT...")
-		wb = XL.Workbook()
-		ws = wb.active
-		ws.append(report_fields)
-		
-		for eachItem in currentReport:
-			ws.append([eachItem[field] for field in report_fields])
-			
-		wb.save("/tmp/REPORT.xlsx")
-		
-		bucket.Object(f"{storeName}/REPORT - {storeName} - {currentDate.strftime('%m-%d-%Y %I:%M%p')}.xlsx").put(Body=open("/tmp/REPORT.xlsx", 'rb'))
-
-	bucket.Object(f"{storeName}/LASTRUN").put(Body=open("/tmp/LASTRUN", 'rb'))	
-	bucket.Object(f"{storeName}/DATA").put(Body=open(f"/tmp/DATA", 'rb'))
-	
 def getLastRunTime(storeName):
 	try:
 		timestring = bucket.Object(f"{storeName}/LASTRUN").get()['Body'].read().decode('utf-8')
@@ -102,30 +71,40 @@ def getLastRunTime(storeName):
 		
 def getLastRunData(storeName):
 	try:
-		previousDataFileObj = bucket.Object(f"{storeName}/DATA")
-		res = previousDataFileObj.get()
-		ret = dict([each.split(',') for each in res['Body'].read().decode('utf-8').split()])
-		previousDataFileObj.delete()
-		return ret
+		bucket.download_file(f"{storeName}/DATA", "/tmp/previousDataFile.xlsx")
+		lastData_wb = XL.load_workbook(filename = "/tmp/previousDataFile.xlsx", read_only=True)
+		lastData_ws = lastData_wb['Sheet']
+		
+		prices = {}
+		titles = {}
+		
+		for row in lastData_ws.rows:
+			prices[row[0].value] = row[1].value
+			titles[row[0].value] = row[2].value
+		
+		bucket.Object(f"{storeName}/DATA").delete()
+		return prices,titles
 	except Exception as err:
 		logger.error(f"[{storeName}] Error reading DATA: {err}")
-		return {}
+		return {},{}
 		
 def main(event, context):
 	
 	for storeName in storeNames:
 		previousFilename = ''
 		previousData = {}
+		previousData_titles {}
 		previousTimestamp = ''
 
 		currentData = {}
+		currentData_titles = {}
 		currentReport = []
 	
 		# Get timestamp of last run
 		previousTimeObj = getLastRunTime(storeName)
 		
 		# Load previous data file into memory if it exists
-		previousData = getLastRunData(storeName)
+		previousData,previousData_titles = getLastRunData(storeName)
 		
 		currentPage = 1
 		totalPages = 1
@@ -166,6 +145,7 @@ def main(event, context):
 						
 				# add the current item to the current data set no matter what
 				currentData[itemId] = price
+				currentData_titles[itemId] = title
 					
 				# If item in previous data set, add it to the report if there's been a change
 				if (itemId in previousData):
@@ -208,9 +188,39 @@ def main(event, context):
 						'last_price' : previousData[itemid],
 						'price_difference' : '',
 						'status' : 'REMOVED',
-						'title' : '',
+						'title' : previousData_titles[itemid],
 						'url' : ''
 						}
 					currentReport.append(toAdd)
+		
+		# write out the timestamp of this run
+		logger.info(f"[{storeName}] Writing LASTRUN...")
+		with open("/tmp/LASTRUN", 'w', newline='') as timeFile:
+			timeFile.write(f"{currentDate}")
+	
+		# write out the data
+		logger.info(f"[{storeName}] Writing DATA.xlsx...")
+		wb_data = XL.Workbook()
+		ws_data = wb_data.active
+		
+		for itemid in currentData:
+			ws_data.append([itemid, currentData[itemid], currentData_titles[itemid]])
+			
+		wb_data.save("/tmp/DATA.xlsx")
 					
-		writeOutAndClose(storeName, currentData, currentReport)
+		# write out the report
+		if currentReport:
+			logger.info(f"[{storeName}] Writing REPORT...")
+			wb = XL.Workbook()
+			ws = wb.active
+			ws.append(report_fields)
+			
+			for eachItem in currentReport:
+				ws.append([eachItem[field] for field in report_fields])
+				
+			wb.save("/tmp/REPORT.xlsx")
+			
+			bucket.Object(f"{storeName}/REPORT - {storeName} - {currentDate.strftime('%m-%d-%Y %I:%M%p')}.xlsx").put(Body=open("/tmp/REPORT.xlsx", 'rb'))
+
+		bucket.Object(f"{storeName}/LASTRUN").put(Body=open("/tmp/LASTRUN", 'rb'))	
+		bucket.Object(f"{storeName}/DATA").put(Body=open(f"/tmp/DATA.xlsx", 'rb'))
