@@ -1,5 +1,4 @@
 import os
-import csv
 import datetime
 import requests
 import boto3
