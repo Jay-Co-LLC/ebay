@@ -38,9 +38,9 @@ PRE = '{urn:ebay:apis:eBLBaseComponents}'
 TODAY = datetime.datetime.now() - datetime.timedelta(hours=8)
 TODAY_STRING = TODAY.strftime('%m-%d-%Y %I:%M%p')
 
-DATE_TYPE_MOD = 'Mod'
-DATE_TYPE_NEW = 'Start'
-DATE_TYPE_REM = 'End'
+DT_MOD = 'Mod'
+DT_NEW = 'Start'
+DT_REM = 'End'
 
 FN_LASTRUN = 'lastrun.txt'
 FN_DATA = 'data.xlsx'
@@ -48,8 +48,8 @@ FN_REPORT = 'report.xlsx'
 
 def P(str):
 	return f'{PRE}{str}'
-
-def getxml(storeName, fromDate, toDate, dateType):
+	
+def getXML(storeName, fromDate, toDate, dateType):
 	return f"""
 <?xml version="1.0" encoding="utf-8"?>
 <GetSellerEventsRequest xmlns="urn:ebay:apis:eBLBaseComponents">
@@ -70,8 +70,8 @@ def getLastRunTime(storeName):
 		timestring = bucket.Object(f"{storeName}/{FN_LASTRUN}").get()['Body'].read().decode('utf-8')
 		return datetime.datetime.strptime(timestring, '%Y-%m-%dT%H:%M:%S.%fZ')
 	except Exception as err:
-		LOG.info(f"[{storeName}] Error reading {FN_LASTRUN}: {err}")
-		return ''
+		LOG.error(f"[{storeName}] Error reading {FN_LASTRUN}: {err}")
+		return None
 		
 def getLastRunData(storeName):
 	try:
@@ -87,14 +87,19 @@ def getLastRunData(storeName):
 		return items
 	except Exception as err:
 		LOG.error(f"[{storeName}] Error reading {FN_DATA}: {err}")
-		return {}
+		return None
 		
 def getListings(storeName, previousTimestamp, dateType):
-	body = getxml(storeName, previousTimestamp, TODAY, dateType)
-	res = requests.post(URL, data=body, headers=HEADERS)
-	root = ET.fromstring(res.content)
-	itemList = root.find(P('ItemArray'))
-	return itemList
+	body = getXML(storeName, previousTimestamp, TODAY, dateType)
+	
+	try:
+		res = requests.post(URL, data=body, headers=HEADERS)
+		root = ET.fromstring(res.content)
+		itemList = root.find(P('ItemArray'))
+		return itemList
+	except Exception as err:
+		LOG.error(f"[{storeName}] Error getting {dateType} listings: {err}")
+		return None
 	
 def putToS3(remoteName, localName):
 	BUCKET.Object(remoteName).put(Body=open(localName, 'rb'))
@@ -103,29 +108,31 @@ def main(event, context):
 	
 	for storeName in STORE_NAMES:
 		data = getLastRunData(storeName)
-		
 		# Move to next store if we can't retrieve data
-		if (not previousData):
+		if not previousData:
 			continue
 			
 		previousTimestamp = getLastRunTime(storeName)
+		# Move to next store if we can't retrieve last run timestamp
+		if not previousTimestamp:
+			continue
 
 		report = []
 		
-		modListings = getListings(storeName, previousTimestamp, DATE_TYPE_MOD)
-		newListings = getListings(storeName, previousTimestamp, DATE_TYPE_NEW)
-		endListings = getListings(storeName, previousTimestamp, DATE_TYPE_REM)
+		modListings = getListings(storeName, previousTimestamp, DT_MOD)
+		newListings = getListings(storeName, previousTimestamp, DT_NEW)
+		endListings = getListings(storeName, previousTimestamp, DT_REM)
 		
-		if (modListings):
+		if modListings:
 			# loop through modListings
 			# compare price
 			# if different, add to report, update previousData
 			
-		if (newListings):
+		if newListings:
 			# loop through newListings
 			# add to report and data
 			
-		if (endListings):
+		if endListings:
 			# loop through endListings
 			# add to report and remove from data
 				
