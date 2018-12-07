@@ -11,19 +11,19 @@ bucket = boto3.resource('s3').Bucket('ebayreports')
 logger = logging.getLogger()
 logger.setLevel(logging.ERROR)
 
-storeNames = os.environ['storeNames'].split(',')
-apiKey = os.environ['key']
+STORE_NAMES = os.environ['storeNames'].split(',')
+KEY = os.environ['key']
 
-baseurl = 'https://api.ebay.com/ws/api.dll'
+URL = 'https://api.ebay.com/ws/api.dll'
 	
-baseparams = {
+HEADERS = {
 	'Content-Type' : 'text/xml',
 	'X-EBAY-API-COMPATIBILITY-LEVEL' : '1081',
 	'X-EBAY-API-CALL-NAME' : 'GetSellerEvents',
 	'X-EBAY-API-SITEID' : '0'
 	}
 	
-report_fields = [
+REPORT_FIELDS = [
 	'itemid',
 	'status',
 	'title',
@@ -33,43 +33,50 @@ report_fields = [
 	'url'
 	]
 
-pre = '{urn:ebay:apis:eBLBaseComponents}'
+PRE = '{urn:ebay:apis:eBLBaseComponents}'
 	
-today = datetime.datetime.now() - datetime.timedelta(hours=8)
-future = today + datetime.timedelta(days=120)
+TODAY = datetime.datetime.now() - datetime.timedelta(hours=8)
+TODAY_STRING = TODAY.strftime('%m-%d-%Y %I:%M%p')
 
-def getxml(userid):
-	return """
+DATE_TYPE_MOD = 'Mod'
+DATE_TYPE_NEW = 'Start'
+DATE_TYPE_REM = 'End'
+
+FN_LASTRUN = 'lastrun.txt'
+FN_DATA = 'data.xlsx'
+FN_REPORT = 'report.xlsx'
+
+def P(str):
+	return f'{PRE}{str}'
+
+def getxml(storeName, fromDate, toDate, dateType):
+	return f"""
 <?xml version="1.0" encoding="utf-8"?>
 <GetSellerEventsRequest xmlns="urn:ebay:apis:eBLBaseComponents">
 	<RequesterCredentials>
-    <eBayAuthToken>{}</eBayAuthToken>
+    <eBayAuthToken>{apiKey}</eBayAuthToken>
   </RequesterCredentials>
-  <EndTimeFrom>{}</EndTimeFrom>
-  <EndTimeTo>{}</EndTimeTo>
-  <Pagination>
-    <EntriesPerPage>200</EntriesPerPage>
-    <PageNumber>{}</PageNumber>
-  </Pagination>
-  <UserID>{}</UserID>
+  <{dateType}TimeFrom>{fromDate}</{dateType}TimeFrom>
+  <{dateType}TimeTo>{toDate}</{dateType}TimeTo>
+  <UserID>{storeName}</UserID>
   <DetailLevel>ReturnAll</DetailLevel>
   <OutputSelector>ItemID</OutputSelector>
-  <
+  <OutputSelector>ListingDetails</OutputSelector>
   <OutputSelector>SellingStatus</OutputSelector>
-</GetSellerEventsRequest>""".format(apiKey, today, future, str(page_number), userid)
+</GetSellerEventsRequest>"""
 
 def getLastRunTime(storeName):
 	try:
-		timestring = bucket.Object(f"{storeName}/lastrun.txt").get()['Body'].read().decode('utf-8')
+		timestring = bucket.Object(f"{storeName}/{FN_LASTRUN}").get()['Body'].read().decode('utf-8')
 		return datetime.datetime.strptime(timestring, '%Y-%m-%dT%H:%M:%S.%fZ')
 	except Exception as err:
-		logger.info(f"[{storeName}] Error reading lastrun.txt: {err}")
+		logger.info(f"[{storeName}] Error reading {FN_LASTRUN}: {err}")
 		return ''
 		
 def getLastRunData(storeName):
 	try:
-		bucket.download_file(f"{storeName}.xlsx", "/tmp/{storName}.xlsx")
-		lastData_wb = XL.load_workbook(filename = "/tmp/{storeName}.xlsx", read_only=True)
+		bucket.download_file(f"{storeName}/{FN_DATA}", "/tmp/{storeName}/{FN_DATA}")
+		lastData_wb = XL.load_workbook(filename = "/tmp/{storeName}/{FN_DATA}", read_only=True)
 		lastData_ws = lastData_wb['Sheet']
 		
 		items = {}
@@ -79,61 +86,67 @@ def getLastRunData(storeName):
 			
 		return items
 	except Exception as err:
-		logger.error(f"[{storeName}] Error reading DATA: {err}")
+		logger.error(f"[{storeName}] Error reading {FN_DATA}: {err}")
 		return {}
 		
-def getModifiedListings(storeName):
-	previousTimestamp = getLastRunTime(storeName)
-	r = requests.post(baseurl, data=getxml(storeName), headers=baseparams)
+def getListings(storeName, previousTimestamp, dateType):
+	body = getxml(storeName, previousTimestamp, TODAY, dateType)
+	res = requests.post(URL, data=body, headers=HEADERS)
+	root = ET.fromstring(res.content)
+	itemList = root.find(P('ItemArray'))
+	return itemList
 	
-		
 def main(event, context):
 	
-	for storeName in storeNames:
+	for storeName in STORE_NAMES:
 		previousData = getLastRunData(storeName)
+		previousTimestamp = getLastRunTime(storeName)
 
-		currentReport = []
+		report = []
 		
-		# modListings = getModifiedListings(storeName)
-		# newListings = getNewListings(storeName)
-		# endListings = getEndedListings(storeName)
-				
-		r = requests.post(baseurl, data=getxml(currentPage, storeName), headers=baseparams)
-					
-		root = ET.fromstring(r.content)
-		itemList = root.find(pre + 'ItemArray')
+		modListings = getListings(storeName, previousTimestamp, DATE_TYPE_MOD)
+		newListings = getListings(storeName, previousTimestamp, DATE_TYPE_NEW)
+		endListings = getListings(storeName, previousTimestamp, DATE_TYPE_REM)
 		
-		for eachItem in itemList:
-			continue
+		if (modListings):
+			# process modListings
+			
+		if (newListings):
+			# process newListings
+			
+		if (endListings):
+			# process endListings
+		
 				
 		# write out the timestamp of this run
 		logger.info(f"[{storeName}] Writing LASTRUN...")
-		with open("/tmp/LASTRUN", 'w', newline='') as timeFile:
-			timeFile.write(f"{today}")
+		with open("/tmp/{storeName}/{FN_LASTRUN}", 'w', newline='') as timeFile:
+			timeFile.write(f"{TODAY}")
 	
 		# write out the data
-		logger.info(f"[{storeName}] Writing DATA.xlsx...")
+		logger.info(f"[{storeName}] Writing DATA...")
 		wb_data = XL.Workbook()
 		ws_data = wb_data.active
 		
-		for itemid in currentData:
-			ws_data.append([itemid, currentData[itemid], currentData_titles[itemid]])
+		for itemid in previousData:
+			ws_data.append([itemid, previousData[itemid])
 			
-		wb_data.save("/tmp/DATA.xlsx")
+		wb_data.save("/tmp/{storeName}/{FN_DATA}")
 					
 		# write out the report
-		if currentReport:
+		if report:
 			logger.info(f"[{storeName}] Writing REPORT...")
 			wb = XL.Workbook()
 			ws = wb.active
-			ws.append(report_fields)
+			ws.append(REPORT_FIELDS)
 			
-			for eachItem in currentReport:
-				ws.append([eachItem[field] for field in report_fields])
+			for eachItem in report:
+				ws.append([eachItem[field] for field in REPORT_FIELDS])
 				
-			wb.save("/tmp/REPORT.xlsx")
+			wb.save("/tmp/{storeName}/{FN_REPORT}")
 			
-			bucket.Object(f"{storeName}/REPORT - {storeName} - {today.strftime('%m-%d-%Y %I:%M%p')}.xlsx").put(Body=open("/tmp/REPORT.xlsx", 'rb'))
+			reportName = f"REPORT - {storeName} - {TODAY_STRING}.xlsx"
+			bucket.Object(reportName).put(Body=open("/tmp/{storeName}/{FN_REPORT}", 'rb'))
 
-		bucket.Object(f"{storeName}/LASTRUN").put(Body=open("/tmp/LASTRUN", 'rb'))	
-		bucket.Object(f"{storeName}/DATA").put(Body=open(f"/tmp/DATA.xlsx", 'rb'))
+		bucket.Object(f"{storeName}/{FN_LASTRUN}").put(Body=open("/tmp/{storeName}/{FN_LASTRUN}", 'rb'))	
+		bucket.Object(f"{storeName}/{FN_DATA}").put(Body=open(f"/tmp/DATA.xlsx", 'rb'))
