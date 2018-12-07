@@ -6,10 +6,10 @@ import logging
 import openpyxl as XL
 import xml.etree.ElementTree as ET
 
-bucket = boto3.resource('s3').Bucket('ebayreports')
+BUCKET = boto3.resource('s3').Bucket('ebayreports')
 
-logger = logging.getLogger()
-logger.setLevel(logging.ERROR)
+LOG = logging.getLogger()
+LOG.setLevel(logging.ERROR)
 
 STORE_NAMES = os.environ['storeNames'].split(',')
 KEY = os.environ['key']
@@ -70,7 +70,7 @@ def getLastRunTime(storeName):
 		timestring = bucket.Object(f"{storeName}/{FN_LASTRUN}").get()['Body'].read().decode('utf-8')
 		return datetime.datetime.strptime(timestring, '%Y-%m-%dT%H:%M:%S.%fZ')
 	except Exception as err:
-		logger.info(f"[{storeName}] Error reading {FN_LASTRUN}: {err}")
+		LOG.info(f"[{storeName}] Error reading {FN_LASTRUN}: {err}")
 		return ''
 		
 def getLastRunData(storeName):
@@ -86,7 +86,7 @@ def getLastRunData(storeName):
 			
 		return items
 	except Exception as err:
-		logger.error(f"[{storeName}] Error reading {FN_DATA}: {err}")
+		LOG.error(f"[{storeName}] Error reading {FN_DATA}: {err}")
 		return {}
 		
 def getListings(storeName, previousTimestamp, dateType):
@@ -96,10 +96,18 @@ def getListings(storeName, previousTimestamp, dateType):
 	itemList = root.find(P('ItemArray'))
 	return itemList
 	
+def putToS3(remoteName, localName):
+	BUCKET.Object(remoteName).put(Body=open(localName, 'rb'))
+		
 def main(event, context):
 	
 	for storeName in STORE_NAMES:
-		previousData = getLastRunData(storeName)
+		data = getLastRunData(storeName)
+		
+		# Move to next store if we can't retrieve data
+		if (not previousData):
+			continue
+			
 		previousTimestamp = getLastRunTime(storeName)
 
 		report = []
@@ -109,27 +117,30 @@ def main(event, context):
 		endListings = getListings(storeName, previousTimestamp, DATE_TYPE_REM)
 		
 		if (modListings):
-			# process modListings
+			# loop through modListings
+			# compare price
+			# if different, add to report, update previousData
 			
 		if (newListings):
-			# process newListings
+			# loop through newListings
+			# add to report and data
 			
 		if (endListings):
-			# process endListings
-		
+			# loop through endListings
+			# add to report and remove from data
 				
 		# write out the timestamp of this run
-		logger.info(f"[{storeName}] Writing LASTRUN...")
+		LOG.info(f"[{storeName}] Writing LASTRUN...")
 		with open("/tmp/{storeName}/{FN_LASTRUN}", 'w', newline='') as timeFile:
 			timeFile.write(f"{TODAY}")
 	
 		# write out the data
-		logger.info(f"[{storeName}] Writing DATA...")
+		LOG.info(f"[{storeName}] Writing DATA...")
 		wb_data = XL.Workbook()
 		ws_data = wb_data.active
 		
-		for itemid in previousData:
-			ws_data.append([itemid, previousData[itemid])
+		for itemid in data:
+			ws_data.append([itemid, data[itemid])
 			
 		wb_data.save("/tmp/{storeName}/{FN_DATA}")
 					
@@ -146,7 +157,7 @@ def main(event, context):
 			wb.save("/tmp/{storeName}/{FN_REPORT}")
 			
 			reportName = f"REPORT - {storeName} - {TODAY_STRING}.xlsx"
-			bucket.Object(reportName).put(Body=open("/tmp/{storeName}/{FN_REPORT}", 'rb'))
+			putToS3(reportName, f"/tmp/{storeName}/{FN_REPORT}")
 
-		bucket.Object(f"{storeName}/{FN_LASTRUN}").put(Body=open("/tmp/{storeName}/{FN_LASTRUN}", 'rb'))	
-		bucket.Object(f"{storeName}/{FN_DATA}").put(Body=open(f"/tmp/DATA.xlsx", 'rb'))
+		putToS3(f"{storeName}/{FN_LASTRUN}", f"/tmp/{storeName}/{FN_LASTRUN}")
+		putToS3(f"{storeName}/{FN_DATA}", f"/tmp/{storeName}/{FN_DATA}")
