@@ -23,7 +23,7 @@ HEADERS = {
 	'X-EBAY-API-SITEID' : '0'
 	}
 	
-REPORT_FIELDS = [
+RF = [
 	'itemid',
 	'status',
 	'title',
@@ -80,8 +80,8 @@ def getLastRunTime(storeName):
 		
 def getLastRunData(storeName):
 	try:
-		bucket.download_file(f"{storeName}/{FN_DATA}", "/tmp/{storeName}/{FN_DATA}")
-		lastData_wb = XL.load_workbook(filename = "/tmp/{storeName}/{FN_DATA}", read_only=True)
+		bucket.download_file(f"{storeName}/{FN_DATA}", "/tmp/{storeName}/_{FN_DATA}")
+		lastData_wb = XL.load_workbook(filename = "/tmp/{storeName}/_{FN_DATA}", read_only=True)
 		lastData_ws = lastData_wb['Sheet']
 		
 		items = {}
@@ -128,7 +128,7 @@ def main(event, context):
 		newListings = getListings(storeName, previousTimestamp, DT_NEW)
 		endListings = getListings(storeName, previousTimestamp, DT_REM)
 		
-		### Process modified listings
+		### Process modified listings ###
 		if modListings:
 			# loop through modListings
 			for eachItem in modListings:
@@ -152,33 +152,73 @@ def main(event, context):
 					
 					# Add to report
 					report.append({
-						'itemid' : itemID,
-						'status' : status,
-						'title' : title,
-						'price' : curPrice,
-						'last_price' : lastPrice,
-						'price_difference' : priceDiff,
-						'url' : url})
+						RF[0] : itemID,
+						RF[1] : status,
+						RF[2] : title,		
+						RF[3] : curPrice,
+						RF[4] : lastPrice,
+						RF[5] : priceDiff,
+						RF[6] : url})
 						
 					# Update data
 					data[itemID] = curPrice
+		### End processing modified listings
 		
-		### Process new listings		
+		### Process new listings ###
 		if newListings:
 			# loop through newListings
-			# add to report and data
-		
-		### Process ended listings
-		if endListings:
-			# loop through endListings
-			# add to report and remove from data
+			for eachItem in newListings:
+				# Get fields
+				itemID = eachItem.find(P('ItemID')).text
+				curPrice = eachItem.find(P('SellingStatus')).find(P('CurrentPrice')).text
+				title = eachItem.find(P('Title')).text
+				url = eachItem.find(P('ListingDetails').find('ViewItemURL').text
 				
-		# write out the timestamp of this run
+				# Add to report
+				report.append({
+					RF[0] : itemID,		
+					RF[1] : ST_NEW,		# status
+					RF[2] : title,		
+					RF[3] : curPrice,	
+					RF[4] : '',			# last price
+					RF[5] : '',			# price difference
+					RF[6] : url})		
+					
+				# Add to data
+				data[itemID] = curPrice
+		### End processing new listings ###
+		
+		### Process ended listings ###
+		if endListings:
+			# Loop through endListings
+				# Get fields
+				itemID = eachItem.find(P('ItemID')).text
+				curPrice = eachItem.find(P('SellingStatus')).find(P('CurrentPrice')).text
+				title = eachItem.find(P('Title')).text
+				
+				# Add to report
+				report.append({
+					RF[0] : itemID,
+					RF[1] : ST_END,			# status
+					RF[2] : title,
+					RF[3] : curPrice,
+					RF[4] : '',				# current price
+					RF[5] : data[itemID],	# last price
+					RF[6] : ''})			# URL
+					
+				# Remove from data
+				del data[itemID]
+		### End processing ended listings ###
+				
+		### Write timestamp ###
 		LOG.info(f"[{storeName}] Writing LASTRUN...")
 		with open("/tmp/{storeName}/{FN_LASTRUN}", 'w', newline='') as timeFile:
 			timeFile.write(f"{TODAY}")
+			
+		putToS3(f"{storeName}/{FN_LASTRUN}", f"/tmp/{storeName}/{FN_LASTRUN}")
+		### End writing timestamp  ###
 	
-		# write out the data
+		### Write data ###
 		LOG.info(f"[{storeName}] Writing DATA...")
 		wb_data = XL.Workbook()
 		ws_data = wb_data.active
@@ -187,21 +227,21 @@ def main(event, context):
 			ws_data.append([itemid, data[itemid])
 			
 		wb_data.save("/tmp/{storeName}/{FN_DATA}")
-					
-		# write out the report
+		putToS3(f"{storeName}/{FN_DATA}", f"/tmp/{storeName}/{FN_DATA}")
+		### End writing data ###
+				
+		### Write report ###
 		if report:
 			logger.info(f"[{storeName}] Writing REPORT...")
 			wb = XL.Workbook()
 			ws = wb.active
-			ws.append(REPORT_FIELDS)
+			ws.append(RF)
 			
 			for eachItem in report:
-				ws.append([eachItem[field] for field in REPORT_FIELDS])
+				ws.append([eachItem[field] for field in RF])
 				
 			wb.save("/tmp/{storeName}/{FN_REPORT}")
 			
 			reportName = f"REPORT - {storeName} - {TODAY_STRING}.xlsx"
 			putToS3(reportName, f"/tmp/{storeName}/{FN_REPORT}")
-
-		putToS3(f"{storeName}/{FN_LASTRUN}", f"/tmp/{storeName}/{FN_LASTRUN}")
-		putToS3(f"{storeName}/{FN_DATA}", f"/tmp/{storeName}/{FN_DATA}")
+		### End writing report ###
