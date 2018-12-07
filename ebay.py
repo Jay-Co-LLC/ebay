@@ -46,6 +46,11 @@ FN_LASTRUN = 'lastrun.txt'
 FN_DATA = 'data.xlsx'
 FN_REPORT = 'report.xlsx'
 
+ST_INC = "INCREASED"
+ST_RED = "REDUCED"
+ST_NEW = "NEW"
+ST_END = "REMOVED"
+
 def P(str):
 	return f'{PRE}{str}'
 	
@@ -123,15 +128,47 @@ def main(event, context):
 		newListings = getListings(storeName, previousTimestamp, DT_NEW)
 		endListings = getListings(storeName, previousTimestamp, DT_REM)
 		
+		### Process modified listings
 		if modListings:
 			# loop through modListings
-			# compare price
-			# if different, add to report, update previousData
+			for eachItem in modListings:
+				# get bare necessity data
+				itemID = eachItem.find(P('ItemID')).text
+				curPrice = eachItem.find(P('SellingStatus')).find(P('CurrentPrice')).text
+				lastPrice = data[itemID]
 			
+				# get price difference
+				priceDiff = float(curPrice) - float(lastPrice)
+				
+				# if different...
+				if priceDiff != 0:
+					title = eachItem.find(P('Title')).text
+					url = eachItem.find(P('ListingDetails').find('ViewItemURL').text
+					
+					if priceDiff > 0:
+						status = ST_INC
+					else:
+						status = ST_RED
+					
+					# Add to report
+					report.append({
+						'itemid' : itemID,
+						'status' : status,
+						'title' : title,
+						'price' : curPrice,
+						'last_price' : lastPrice,
+						'price_difference' : priceDiff,
+						'url' : url})
+						
+					# Update data
+					data[itemID] = curPrice
+		
+		### Process new listings		
 		if newListings:
 			# loop through newListings
 			# add to report and data
-			
+		
+		### Process ended listings
 		if endListings:
 			# loop through endListings
 			# add to report and remove from data
