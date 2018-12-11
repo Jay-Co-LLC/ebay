@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 BUCKET = boto3.resource('s3').Bucket('ebayreports')
 
 LOG = logging.getLogger()
-LOG.setLevel(logging.ERROR)
+LOG.setLevel(logging.INFO)
 
 STORE_NAMES = os.environ['storeNames'].split(',')
 KEY = os.environ['key']
@@ -59,29 +59,30 @@ def getXML(storeName, fromDate, toDate, dateType):
 <?xml version="1.0" encoding="utf-8"?>
 <GetSellerEventsRequest xmlns="urn:ebay:apis:eBLBaseComponents">
 	<RequesterCredentials>
-    <eBayAuthToken>{apiKey}</eBayAuthToken>
+    <eBayAuthToken>{KEY}</eBayAuthToken>
   </RequesterCredentials>
   <{dateType}TimeFrom>{fromDate}</{dateType}TimeFrom>
   <{dateType}TimeTo>{toDate}</{dateType}TimeTo>
   <UserID>{storeName}</UserID>
   <DetailLevel>ReturnAll</DetailLevel>
   <OutputSelector>ItemID</OutputSelector>
-  <OutputSelector>ListingDetails</OutputSelector>
   <OutputSelector>SellingStatus</OutputSelector>
+  <OutputSelector>Title</OutputSelector>
 </GetSellerEventsRequest>"""
 
 def getLastRunTime(storeName):
 	try:
-		timestring = bucket.Object(f"{storeName}/{FN_LASTRUN}").get()['Body'].read().decode('utf-8')
-		return datetime.datetime.strptime(timestring, '%Y-%m-%dT%H:%M:%S.%fZ')
+		timestring = BUCKET.Object(f"{storeName}/{FN_LASTRUN}").get()['Body'].read().decode('utf-8')
+		return datetime.datetime.strptime(timestring, '%Y-%m-%d %H:%M:%S.%f')
 	except Exception as err:
 		LOG.error(f"[{storeName}] Error reading {FN_LASTRUN}: {err}")
 		return None
 		
 def getLastRunData(storeName):
 	try:
-		bucket.download_file(f"{storeName}/{FN_DATA}", "/tmp/{storeName}/_{FN_DATA}")
-		lastData_wb = XL.load_workbook(filename = "/tmp/{storeName}/_{FN_DATA}", read_only=True)
+		BUCKET.download_file(f"{storeName}/{FN_DATA}", f"/tmp/{storeName}_{FN_DATA}")
+		
+		lastData_wb = XL.load_workbook(filename = f"/tmp/{storeName}_{FN_DATA}", read_only=True)
 		lastData_ws = lastData_wb['Sheet']
 		
 		items = {}
@@ -114,7 +115,7 @@ def main(event, context):
 	for storeName in STORE_NAMES:
 		data = getLastRunData(storeName)
 		# Move to next store if we can't retrieve data
-		if not previousData:
+		if not data:
 			continue
 			
 		previousTimestamp = getLastRunTime(storeName)
@@ -130,21 +131,26 @@ def main(event, context):
 		
 		### Process modified listings ###
 		if modListings:
+			LOG.info(f"[{storeName}] Processing modified listings...")
 			# loop through modListings
 			for eachItem in modListings:
-				# get bare necessity data
+				# Get fields
 				itemID = eachItem.find(P('ItemID')).text
 				curPrice = eachItem.find(P('SellingStatus')).find(P('CurrentPrice')).text
-				lastPrice = data[itemID]
+				title = eachItem.find(P('Title')).text
+				url = f"https://www.ebay.com/itm/{itemID}"
+				
+				try:
+					lastPrice = data[itemID]
+				except:
+					LOG.info(f"[{storeName}] Cannot find {itemID} in previous data, skipping...")
+					continue
 			
-				# get price difference
+				# Get price difference
 				priceDiff = float(curPrice) - float(lastPrice)
 				
-				# if different...
+				# If different...
 				if priceDiff != 0:
-					title = eachItem.find(P('Title')).text
-					url = eachItem.find(P('ListingDetails').find('ViewItemURL').text
-					
 					if priceDiff > 0:
 						status = ST_INC
 					else:
@@ -166,13 +172,14 @@ def main(event, context):
 		
 		### Process new listings ###
 		if newListings:
+			LOG.info(f"[{storeName}] Processing new listings...")
 			# loop through newListings
 			for eachItem in newListings:
 				# Get fields
 				itemID = eachItem.find(P('ItemID')).text
 				curPrice = eachItem.find(P('SellingStatus')).find(P('CurrentPrice')).text
 				title = eachItem.find(P('Title')).text
-				url = eachItem.find(P('ListingDetails').find(P('ViewItemURL')).text
+				url = f"https://www.ebay.com/itm/{itemID}"
 				
 				# Add to report
 				report.append({
@@ -202,20 +209,21 @@ def main(event, context):
 					'itemid' : itemID,
 					'status' : ST_END,
 					'title' : title,
-					'price' : curPrice,
+					'price' : '',
 					'last_price' : data[itemID],
+					'price_difference' : '',
 					'url' : ''})
 					
 				# Remove from data
 				del data[itemID]
 		### End processing ended listings ###
-				
+		
 		### Write timestamp ###
 		LOG.info(f"[{storeName}] Writing LASTRUN...")
-		with open(f"/tmp/{storeName}/{FN_LASTRUN}", 'w', newline='') as timeFile:
+		with open(f"/tmp/{storeName}_{FN_LASTRUN}", 'w', newline='') as timeFile:
 			timeFile.write(f"{TODAY}")
 			
-		putToS3(f"{storeName}/{FN_LASTRUN}", f"/tmp/{storeName}/{FN_LASTRUN}")
+		putToS3(f"{storeName}/{FN_LASTRUN}", f"/tmp/{storeName}_{FN_LASTRUN}")
 		### End writing timestamp  ###
 	
 		### Write data ###
@@ -224,10 +232,10 @@ def main(event, context):
 		ws_data = wb_data.active
 		
 		for itemid in data:
-			ws_data.append([itemid, data[itemid])
+			ws_data.append([itemid, data[itemid]])
 			
-		wb_data.save("/tmp/{storeName}/{FN_DATA}")
-		putToS3(f"{storeName}/{FN_DATA}", f"/tmp/{storeName}/{FN_DATA}")
+		wb_data.save("/tmp/{storeName}_{FN_DATA}")
+		putToS3(f"{storeName}/{FN_DATA}", f"/tmp/{storeName}_{FN_DATA}")
 		### End writing data ###
 				
 		### Write report ###
@@ -240,8 +248,8 @@ def main(event, context):
 			for eachItem in report:
 				ws.append([eachItem[field] for field in REPORT_FIELDS])
 				
-			wb.save(f"/tmp/{storeName}/{FN_REPORT}")
+			wb.save(f"/tmp/{storeName}_{FN_REPORT}")
 			
-			reportName = f"REPORT - {storeName} - {TODAY_STRING}.xlsx"
-			putToS3(reportName, f"/tmp/{storeName}/{FN_REPORT}")
+			reportName = f"{storeName}/REPORT - {storeName} - {TODAY_STRING}.xlsx"
+			putToS3(reportName, f"/tmp/{storeName}_{FN_REPORT}")
 		### End writing report ###
