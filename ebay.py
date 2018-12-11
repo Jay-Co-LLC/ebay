@@ -23,7 +23,7 @@ HEADERS = {
 	'X-EBAY-API-SITEID' : '0'
 	}
 	
-RF = [
+REPORT_FIELDS = [
 	'itemid',
 	'status',
 	'title',
@@ -152,13 +152,13 @@ def main(event, context):
 					
 					# Add to report
 					report.append({
-						RF[0] : itemID,
-						RF[1] : status,
-						RF[2] : title,		
-						RF[3] : curPrice,
-						RF[4] : lastPrice,
-						RF[5] : priceDiff,
-						RF[6] : url})
+						'itemid' : itemID,
+						'status' : status,
+						'title' : title,		
+						'price' : curPrice,
+						'last_price' : lastPrice,
+						'price_difference' : priceDiff,
+						'url' : url})
 						
 					# Update data
 					data[itemID] = curPrice
@@ -172,17 +172,17 @@ def main(event, context):
 				itemID = eachItem.find(P('ItemID')).text
 				curPrice = eachItem.find(P('SellingStatus')).find(P('CurrentPrice')).text
 				title = eachItem.find(P('Title')).text
-				url = eachItem.find(P('ListingDetails').find('ViewItemURL').text
+				url = eachItem.find(P('ListingDetails').find(P('ViewItemURL')).text
 				
 				# Add to report
 				report.append({
-					RF[0] : itemID,		
-					RF[1] : ST_NEW,		# status
-					RF[2] : title,		
-					RF[3] : curPrice,	
-					RF[4] : '',			# last price
-					RF[5] : '',			# price difference
-					RF[6] : url})		
+					'itemid' : itemID,		
+					'status' : ST_NEW,
+					'title' : title,		
+					'price' : curPrice,	
+					'last_price' : '',
+					'price_difference' : '',
+					'url' : url})		
 					
 				# Add to data
 				data[itemID] = curPrice
@@ -191,6 +191,7 @@ def main(event, context):
 		### Process ended listings ###
 		if endListings:
 			# Loop through endListings
+			for eachItem in endListings:
 				# Get fields
 				itemID = eachItem.find(P('ItemID')).text
 				curPrice = eachItem.find(P('SellingStatus')).find(P('CurrentPrice')).text
@@ -198,13 +199,12 @@ def main(event, context):
 				
 				# Add to report
 				report.append({
-					RF[0] : itemID,
-					RF[1] : ST_END,			# status
-					RF[2] : title,
-					RF[3] : curPrice,
-					RF[4] : '',				# current price
-					RF[5] : data[itemID],	# last price
-					RF[6] : ''})			# URL
+					'itemid' : itemID,
+					'status' : ST_END,
+					'title' : title,
+					'price' : curPrice,
+					'last_price' : data[itemID],
+					'url' : ''})
 					
 				# Remove from data
 				del data[itemID]
@@ -212,7 +212,7 @@ def main(event, context):
 				
 		### Write timestamp ###
 		LOG.info(f"[{storeName}] Writing LASTRUN...")
-		with open("/tmp/{storeName}/{FN_LASTRUN}", 'w', newline='') as timeFile:
+		with open(f"/tmp/{storeName}/{FN_LASTRUN}", 'w', newline='') as timeFile:
 			timeFile.write(f"{TODAY}")
 			
 		putToS3(f"{storeName}/{FN_LASTRUN}", f"/tmp/{storeName}/{FN_LASTRUN}")
@@ -232,15 +232,15 @@ def main(event, context):
 				
 		### Write report ###
 		if report:
-			logger.info(f"[{storeName}] Writing REPORT...")
+			LOG.info(f"[{storeName}] Writing REPORT...")
 			wb = XL.Workbook()
 			ws = wb.active
-			ws.append(RF)
+			ws.append(REPORT_FIELDS)
 			
 			for eachItem in report:
-				ws.append([eachItem[field] for field in RF])
+				ws.append([eachItem[field] for field in REPORT_FIELDS])
 				
-			wb.save("/tmp/{storeName}/{FN_REPORT}")
+			wb.save(f"/tmp/{storeName}/{FN_REPORT}")
 			
 			reportName = f"REPORT - {storeName} - {TODAY_STRING}.xlsx"
 			putToS3(reportName, f"/tmp/{storeName}/{FN_REPORT}")
