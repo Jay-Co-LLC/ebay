@@ -204,13 +204,19 @@ def main(event, context):
 				curPrice = eachItem.find(P('SellingStatus')).find(P('CurrentPrice')).text
 				title = eachItem.find(P('Title')).text
 				
+				try:
+					lastPrice = data[itemID]
+				except:
+					LOG.info(f"[{storeName}] Cannot find {itemID} in previous data, skipping...")
+					continue
+				
 				# Add to report
 				report.append({
 					'itemid' : itemID,
 					'status' : ST_END,
 					'title' : title,
 					'price' : '',
-					'last_price' : data[itemID],
+					'last_price' : lastPrice,
 					'price_difference' : '',
 					'url' : ''})
 					
