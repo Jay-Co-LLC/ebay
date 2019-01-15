@@ -6,24 +6,24 @@ import logging
 import openpyxl as XL
 import xml.etree.ElementTree as ET
 
-bucket = boto3.resource('s3').Bucket('ebayreports')
+BUCKET = boto3.resource('s3').Bucket('ebayreports')
 
-logger = logging.getLogger()
-logger.setLevel(logging.ERROR)
+LOG = logging.getLogger()
+LOG.setLevel(logging.INFO)
 
-storeNames = os.environ['storeNames'].split(',')
-apiKey = os.environ['key']
+STORE_NAMES = os.environ['storeNames'].split(',')
+KEY = os.environ['key']
 
-baseurl = 'https://api.ebay.com/ws/api.dll'
+URL = 'https://api.ebay.com/ws/api.dll'
 	
-baseparams = {
+HEADERS = {
 	'Content-Type' : 'text/xml',
 	'X-EBAY-API-COMPATIBILITY-LEVEL' : '1081',
-	'X-EBAY-API-CALL-NAME' : 'GetSellerList',
+	'X-EBAY-API-CALL-NAME' : 'GetSellerEvents',
 	'X-EBAY-API-SITEID' : '0'
 	}
 	
-report_fields = [
+REPORT_FIELDS = [
 	'itemid',
 	'status',
 	'title',
@@ -33,193 +33,229 @@ report_fields = [
 	'url'
 	]
 
-pre = '{urn:ebay:apis:eBLBaseComponents}'
+PRE = '{urn:ebay:apis:eBLBaseComponents}'
 	
-currentDate = datetime.datetime.now() - datetime.timedelta(hours=8)
-future = currentDate + datetime.timedelta(days=120)
+TODAY = datetime.datetime.now() - datetime.timedelta(hours=8)
+TODAY_STRING = TODAY.strftime('%m-%d-%Y %I:%M%p')
 
-def getxml(page_number, userid):
-	return """
+DT_MOD = 'Mod'
+DT_NEW = 'Start'
+DT_REM = 'End'
+
+FN_LASTRUN = 'lastrun.txt'
+FN_DATA = 'data.xlsx'
+FN_REPORT = 'report.xlsx'
+
+ST_INC = "INCREASED"
+ST_RED = "REDUCED"
+ST_NEW = "NEW"
+ST_END = "REMOVED"
+
+def P(str):
+	return f'{PRE}{str}'
+	
+def getXML(storeName, fromDate, toDate, dateType):
+	return f"""
 <?xml version="1.0" encoding="utf-8"?>
-<GetSellerListRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+<GetSellerEventsRequest xmlns="urn:ebay:apis:eBLBaseComponents">
 	<RequesterCredentials>
-    <eBayAuthToken>{}</eBayAuthToken>
+    <eBayAuthToken>{KEY}</eBayAuthToken>
   </RequesterCredentials>
-  <EndTimeFrom>{}</EndTimeFrom>
-  <EndTimeTo>{}</EndTimeTo>
-  <Pagination>
-    <EntriesPerPage>200</EntriesPerPage>
-    <PageNumber>{}</PageNumber>
-  </Pagination>
-  <UserID>{}</UserID>
+  <{dateType}TimeFrom>{fromDate}</{dateType}TimeFrom>
+  <{dateType}TimeTo>{toDate}</{dateType}TimeTo>
+  <UserID>{storeName}</UserID>
   <DetailLevel>ReturnAll</DetailLevel>
   <OutputSelector>ItemID</OutputSelector>
-  <OutputSelector>Title</OutputSelector>
-  <OutputSelector>PaginationResult</OutputSelector>
   <OutputSelector>SellingStatus</OutputSelector>
-  <OutputSelector>ListingDetails</OutputSelector>
-</GetSellerListRequest>""".format(apiKey, currentDate, future, str(page_number), userid)
+  <OutputSelector>Title</OutputSelector>
+</GetSellerEventsRequest>"""
 
 def getLastRunTime(storeName):
 	try:
-		timestring = bucket.Object(f"{storeName}/LASTRUN").get()['Body'].read().decode('utf-8')
+		timestring = BUCKET.Object(f"{storeName}/{FN_LASTRUN}").get()['Body'].read().decode('utf-8')
 		return datetime.datetime.strptime(timestring, '%Y-%m-%d %H:%M:%S.%f')
 	except Exception as err:
-		logger.info(f"[{storeName}] Error reading LASTRUN: {err}")
-		return ''
+		LOG.error(f"[{storeName}] Error reading {FN_LASTRUN}: {err}")
+		return None
 		
 def getLastRunData(storeName):
 	try:
-		bucket.download_file(f"{storeName}/DATA", "/tmp/previousDataFile.xlsx")
-		lastData_wb = XL.load_workbook(filename = "/tmp/previousDataFile.xlsx", read_only=True)
+		BUCKET.download_file(f"{storeName}/{FN_DATA}", f"/tmp/{storeName}_{FN_DATA}")
+		
+		lastData_wb = XL.load_workbook(filename = f"/tmp/{storeName}_{FN_DATA}", read_only=True)
 		lastData_ws = lastData_wb['Sheet']
 		
-		prices = {}
-		titles = {}
+		items = {}
 		
 		for row in lastData_ws.rows:
-			prices[row[0].value] = row[1].value
-			titles[row[0].value] = row[2].value
-		
-		bucket.Object(f"{storeName}/DATA").delete()
-		return prices,titles
+			items[row[0].value] = row[1].value
+			
+		return items
 	except Exception as err:
-		logger.error(f"[{storeName}] Error reading DATA: {err}")
-		return {},{}
+		LOG.error(f"[{storeName}] Error reading {FN_DATA}: {err}")
+		return None
+		
+def getListings(storeName, previousTimestamp, dateType):
+	body = getXML(storeName, previousTimestamp, TODAY, dateType)
+	
+	try:
+		res = requests.post(URL, data=body, headers=HEADERS)
+		root = ET.fromstring(res.content)
+		itemList = root.find(P('ItemArray'))
+		return itemList
+	except Exception as err:
+		LOG.error(f"[{storeName}] Error getting {dateType} listings: {err}")
+		return None
+	
+def putToS3(remoteName, localName):
+	BUCKET.Object(remoteName).put(Body=open(localName, 'rb'))
 		
 def main(event, context):
 	
-	for storeName in storeNames:
-		previousFilename = ''
-		previousData = {}
-		previousData_titles {}
-		previousTimestamp = ''
+	for storeName in STORE_NAMES:
+		data = getLastRunData(storeName)
+		# Move to next store if we can't retrieve data
+		if not data:
+			continue
+			
+		previousTimestamp = getLastRunTime(storeName)
+		# Move to next store if we can't retrieve last run timestamp
+		if not previousTimestamp:
+			continue
 
-		currentData = {}
-		currentData_titles = {}
-		currentReport = []
-	
-		# Get timestamp of last run
-		previousTimeObj = getLastRunTime(storeName)
+		report = []
 		
-		# Load previous data file into memory if it exists
-		previousData,previousData_titles = getLastRunData(storeName)
+		modListings = getListings(storeName, previousTimestamp, DT_MOD)
+		newListings = getListings(storeName, previousTimestamp, DT_NEW)
+		endListings = getListings(storeName, previousTimestamp, DT_REM)
 		
-		currentPage = 1
-		totalPages = 1
-		
-		logger.info(f"[{storeName}] Starting...")
-			
-		while (currentPage <= totalPages):
-			
-			logger.info(f"[{storeName}] Reading page {currentPage}/{totalPages}")
-			
-			r = requests.post(baseurl, data=getxml(currentPage, storeName), headers=baseparams)
-			
-			# if error retrieving data from eBay, move to next seller
-			# to avoid overwriting data file with partial data
-			if (r.status_code != 200):
-				logger.error(f"[{storeName}] HTTP response {r.status_code}")
-				break
+		### Process modified listings ###
+		if modListings:
+			LOG.info(f"[{storeName}] Processing modified listings...")
+			# loop through modListings
+			for eachItem in modListings:
+				# Get fields
+				itemID = eachItem.find(P('ItemID')).text
+				curPrice = eachItem.find(P('SellingStatus')).find(P('CurrentPrice')).text
+				title = eachItem.find(P('Title')).text
+				url = f"https://www.ebay.com/itm/{itemID}"
 				
-			root = ET.fromstring(r.content)
+				try:
+					lastPrice = data[itemID]
+				except:
+					LOG.info(f"[{storeName}] Cannot find {itemID} in previous data, skipping...")
+					continue
+			
+				# Get price difference
+				priceDiff = float(curPrice) - float(lastPrice)
+				
+				# If different...
+				if priceDiff != 0:
+					if priceDiff > 0:
+						status = ST_INC
+					else:
+						status = ST_RED
+					
+					# Add to report
+					report.append({
+						'itemid' : itemID,
+						'status' : status,
+						'title' : title,		
+						'price' : curPrice,
+						'last_price' : lastPrice,
+						'price_difference' : priceDiff,
+						'url' : url})
+						
+					# Update data
+					data[itemID] = curPrice
+		### End processing modified listings
 		
-			totalPages = int(root.find(pre + 'PaginationResult').find(pre + 'TotalNumberOfPages').text)
-	
-			itemArr = root.find(pre + 'ItemArray')
+		### Process new listings ###
+		if newListings:
+			LOG.info(f"[{storeName}] Processing new listings...")
+			# loop through newListings
+			for eachItem in newListings:
+				# Get fields
+				itemID = eachItem.find(P('ItemID')).text
+				curPrice = eachItem.find(P('SellingStatus')).find(P('CurrentPrice')).text
+				title = eachItem.find(P('Title')).text
+				url = f"https://www.ebay.com/itm/{itemID}"
 				
-			# loop through each item in the current page of results, add it to data, add it to report if needed
-			for eachItem in itemArr:
-				itemId = eachItem.find(pre + 'ItemID').text
-				price = eachItem.find(pre + 'SellingStatus').find(pre + 'CurrentPrice').text
-				title = eachItem.find(pre + 'Title').text
-				url = eachItem.find(pre + 'ListingDetails').find(pre + 'ViewItemURL').text
+				# Add to report
+				report.append({
+					'itemid' : itemID,		
+					'status' : ST_NEW,
+					'title' : title,		
+					'price' : curPrice,	
+					'last_price' : '',
+					'price_difference' : '',
+					'url' : url})		
+					
+				# Add to data
+				data[itemID] = curPrice
+		### End processing new listings ###
+		
+		### Process ended listings ###
+		if endListings:
+			# Loop through endListings
+			for eachItem in endListings:
+				# Get fields
+				itemID = eachItem.find(P('ItemID')).text
+				curPrice = eachItem.find(P('SellingStatus')).find(P('CurrentPrice')).text
+				title = eachItem.find(P('Title')).text
 				
-				currentItem = {
-					'itemid' : itemId,
-					'price' : price,
+				try:
+					lastPrice = data[itemID]
+				except:
+					LOG.info(f"[{storeName}] Cannot find {itemID} in previous data, skipping...")
+					continue
+				
+				# Add to report
+				report.append({
+					'itemid' : itemID,
+					'status' : ST_END,
 					'title' : title,
-					'url' : url
-				}
-						
-				# add the current item to the current data set no matter what
-				currentData[itemId] = price
-				currentData_titles[itemId] = title
+					'price' : '',
+					'last_price' : lastPrice,
+					'price_difference' : '',
+					'url' : ''})
 					
-				# If item in previous data set, add it to the report if there's been a change
-				if (itemId in previousData):
-					price_difference = float(currentItem['price']) - float(previousData[itemId])
-					
-					# If there's been no change in the price, don't add it to the report
-					if (price_difference == 0): 
-						continue
-							
-					currentItem['last_price'] = previousData[itemId]
-					currentItem['price_difference'] = price_difference
-					
-					if (price_difference < 0):
-						currentItem['status'] = 'REDUCED'
-					elif (price_difference > 0):
-						currentItem['status'] = 'INCREASED'
-						
-					currentReport.append(currentItem)
-				else:
-					currentItem['status'] = 'NEW'
-					currentItem['last_price'] = ''
-					currentItem['price_difference'] = ''
-					
-					currentReport.append(currentItem)
-					
-			currentPage = currentPage + 1
+				# Remove from data
+				del data[itemID]
+		### End processing ended listings ###
 		
-		# Once we've gotten through all the listings, use set operations to find removed listings
-		if previousData:
-			currentSkus = set([itemid for itemid in currentData])
-			previousSkus = set([itemid for itemid in previousData])
-
-			removedItems = previousSkus - currentSkus
-
-			if removedItems:
-				for itemid in removedItems:				
-					toAdd = {
-						'itemid' : itemid,
-						'price' : '',
-						'last_price' : previousData[itemid],
-						'price_difference' : '',
-						'status' : 'REMOVED',
-						'title' : previousData_titles[itemid],
-						'url' : ''
-						}
-					currentReport.append(toAdd)
-		
-		# write out the timestamp of this run
-		logger.info(f"[{storeName}] Writing LASTRUN...")
-		with open("/tmp/LASTRUN", 'w', newline='') as timeFile:
-			timeFile.write(f"{currentDate}")
+		### Write timestamp ###
+		LOG.info(f"[{storeName}] Writing LASTRUN...")
+		with open(f"/tmp/{storeName}_{FN_LASTRUN}", 'w', newline='') as timeFile:
+			timeFile.write(f"{TODAY}")
+			
+		putToS3(f"{storeName}/{FN_LASTRUN}", f"/tmp/{storeName}_{FN_LASTRUN}")
+		### End writing timestamp  ###
 	
-		# write out the data
-		logger.info(f"[{storeName}] Writing DATA.xlsx...")
+		### Write data ###
+		LOG.info(f"[{storeName}] Writing DATA...")
 		wb_data = XL.Workbook()
 		ws_data = wb_data.active
 		
-		for itemid in currentData:
-			ws_data.append([itemid, currentData[itemid], currentData_titles[itemid]])
+		for itemid in data:
+			ws_data.append([itemid, data[itemid]])
 			
-		wb_data.save("/tmp/DATA.xlsx")
-					
-		# write out the report
-		if currentReport:
-			logger.info(f"[{storeName}] Writing REPORT...")
+		wb_data.save("/tmp/{storeName}_{FN_DATA}")
+		putToS3(f"{storeName}/{FN_DATA}", f"/tmp/{storeName}_{FN_DATA}")
+		### End writing data ###
+				
+		### Write report ###
+		if report:
+			LOG.info(f"[{storeName}] Writing REPORT...")
 			wb = XL.Workbook()
 			ws = wb.active
-			ws.append(report_fields)
+			ws.append(REPORT_FIELDS)
 			
-			for eachItem in currentReport:
-				ws.append([eachItem[field] for field in report_fields])
+			for eachItem in report:
+				ws.append([eachItem[field] for field in REPORT_FIELDS])
 				
-			wb.save("/tmp/REPORT.xlsx")
+			wb.save(f"/tmp/{storeName}_{FN_REPORT}")
 			
-			bucket.Object(f"{storeName}/REPORT - {storeName} - {currentDate.strftime('%m-%d-%Y %I:%M%p')}.xlsx").put(Body=open("/tmp/REPORT.xlsx", 'rb'))
-
-		bucket.Object(f"{storeName}/LASTRUN").put(Body=open("/tmp/LASTRUN", 'rb'))	
-		bucket.Object(f"{storeName}/DATA").put(Body=open(f"/tmp/DATA.xlsx", 'rb'))
+			reportName = f"{storeName}/REPORT - {storeName} - {TODAY_STRING}.xlsx"
+			putToS3(reportName, f"/tmp/{storeName}_{FN_REPORT}")
+		### End writing report ###
